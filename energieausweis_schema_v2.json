@@ -1,0 +1,134 @@
+{
+  "schema_id": "energieausweis.de.v2",
+  "beschreibung": "Universelles Extraktions-Schema fuer deutsche Energieausweise. Deckt beide Gebaeudetypen (Wohngebaeude WG / Nichtwohngebaeude NWG) und beide Ausweistypen (Bedarf / Verbrauch) ab. Felder sind mit 'gilt_fuer' getaggt, sodass EIN Katalog alle vier Varianten bedient. Bezeichnungen folgen den amtlichen Mustern (BBSR, Bekanntmachung 01.12.2023, Stand GEG 2024).",
+  "rechtsgrundlage": "§§ 79-88 GEG; Pflichtangaben § 85 GEG; verbindliche Muster § 85 Abs. 8; Bedarf seit 01.01.2024 nach DIN V 18599.",
+  "stand": "GEG 2024",
+  "diskriminatoren": {
+    "gebaeudetyp": ["Wohngebaeude", "Nichtwohngebaeude"],
+    "ausweistyp": ["Bedarfsausweis", "Verbrauchsausweis"]
+  },
+  "varianten_matrix": {
+    "WG_Bedarf":     {"flaeche": "gebaeudenutzflaeche_an", "kennwerte": "einzelwert + effizienzklasse", "detailblock": "bedarf"},
+    "WG_Verbrauch":  {"flaeche": "gebaeudenutzflaeche_an", "kennwerte": "einzelwert + effizienzklasse", "detailblock": "verbrauch", "besonderheit": "WW-Pauschale +20 kWh/m2a wenn dezentral & unbekannt; +6 kWh/m2a wenn gekuehlt"},
+    "NWG_Bedarf":    {"flaeche": "nettogrundflaeche", "kennwerte": "getrennt Waerme + Strom", "detailblock": "bedarf", "besonderheit": "eingebaute Beleuchtung + Gebaeudezonen"},
+    "NWG_Verbrauch": {"flaeche": "nettogrundflaeche", "kennwerte": "getrennt Waerme + Strom", "detailblock": "verbrauch"}
+  },
+  "enums": {
+    "gebaeudetyp": ["Wohngebaeude", "Nichtwohngebaeude"],
+    "ausweistyp": ["Bedarfsausweis", "Verbrauchsausweis"],
+    "flaechenart": ["Nettogrundflaeche (NWG)", "Gebaeudenutzflaeche A_N (WG)"],
+    "energieeffizienzklasse_wg": ["A+", "A", "B", "C", "D", "E", "F", "G", "H", null],
+    "energieeffizienzklasse_eu_ab_2026": ["A", "B", "C", "D", "E", "F", "G", null],
+    "anlass_ausstellung": ["Neubau", "Modernisierung (Aenderung/Erweiterung)", "Vermietung/Verkauf", "Aushangpflicht", "Sonstiges"],
+    "art_lueftung": ["Fensterlueftung", "Schachtlueftung", "Lueftungsanlage mit Waermerueckgewinnung", "Lueftungsanlage ohne Waermerueckgewinnung"],
+    "art_kuehlung": ["Passive Kuehlung", "Gelieferte Kaelte", "Kuehlung aus Strom", "Kuehlung aus Waerme"],
+    "energietraeger": [
+      "Erdgas H", "Erdgas L", "Fluessiggas", "Heizoel EL", "Steinkohle", "Braunkohle",
+      "Holz/Biomasse", "Fernwaerme (KWK)", "Fernwaerme (fossil)", "Nahwaerme",
+      "Strom (Netzmix)", "Strom (Gruenstrom, Herkunftsnachweis)",
+      "Umweltwaerme (Waermepumpe)", "Solarthermie", "Abwaerme/WRG", "Sonstige"
+    ],
+    "verfahren_bedarf": ["§ 21 GEG", "§ 32 GEG (Ein-Zonen-Modell)", "§ 31 GEG (vereinf. Nachweis WG)", "Vereinfachung § 50 Abs. 4 GEG"]
+  },
+  "felder": {
+    "stammdaten": {
+      "_seite": 1,
+      "_gilt_fuer": "alle",
+      "registriernummer":               {"typ": "string",  "pflicht": true,  "gilt_fuer": "alle", "hinweis": "DIBt-registriert, § 114 GEG"},
+      "gueltig_bis":                    {"typ": "date",    "pflicht": true,  "gilt_fuer": "alle", "hinweis": "10 Jahre ab Ausstellung"},
+      "geg_stand":                      {"typ": "string",  "pflicht": true,  "gilt_fuer": "alle", "hinweis": "angewendeter GEG-/EnEV-Stand; bestimmt Faktoren/Verfahren/Skala"},
+      "gebaeudetyp":                    {"typ": "enum",    "pflicht": true,  "gilt_fuer": "alle", "enum_ref": "gebaeudetyp", "hinweis": "DISKRIMINATOR"},
+      "ausweistyp":                     {"typ": "enum",    "pflicht": true,  "gilt_fuer": "alle", "enum_ref": "ausweistyp", "hinweis": "DISKRIMINATOR: steuert Block bedarf|verbrauch"},
+      "hauptnutzung_gebaeudekategorie": {"typ": "string",  "pflicht": true,  "gilt_fuer": "alle", "hinweis": "-> Mapping CRREM-Nutzungsart"},
+      "adresse":                        {"typ": "string",  "pflicht": true,  "gilt_fuer": "alle"},
+      "gebaeudeteil":                   {"typ": "string",  "pflicht": false, "gilt_fuer": "alle"},
+      "baujahr_gebaeude":               {"typ": "integer", "pflicht": true,  "gilt_fuer": "alle", "hinweis": "bei WG zusaetzlich Pflichtangabe in Immobilienanzeigen"},
+      "baujahr_waermeerzeuger":         {"typ": "integer", "pflicht": false, "gilt_fuer": "alle"},
+      "energietraeger_heizung":         {"typ": "array<enum>", "pflicht": true, "gilt_fuer": "alle", "enum_ref": "energietraeger", "hinweis": "Mehrfachangaben moeglich"},
+      "energietraeger_warmwasser":      {"typ": "array<enum>", "pflicht": false, "gilt_fuer": "alle", "enum_ref": "energietraeger"},
+      "erneuerbare_energien":           {"typ": "object",  "pflicht": false, "gilt_fuer": "alle", "felder": {"art": "string", "verwendung": "string"}},
+      "art_lueftung":                   {"typ": "enum",    "pflicht": false, "gilt_fuer": "alle", "enum_ref": "art_lueftung"},
+      "art_kuehlung":                   {"typ": "enum",    "pflicht": false, "gilt_fuer": "alle", "enum_ref": "art_kuehlung"},
+      "inspektionspflichtige_klimaanlagen": {"typ": "object", "pflicht": false, "gilt_fuer": "NWG", "felder": {"anzahl": "integer", "naechste_inspektion": "date"}},
+      "anlass_ausstellung":             {"typ": "enum",    "pflicht": true,  "gilt_fuer": "alle", "enum_ref": "anlass_ausstellung"},
+      "datenerhebung_durch":            {"typ": "enum",    "pflicht": false, "gilt_fuer": "alle", "werte": ["Eigentuemer", "Aussteller"]},
+      "aussteller":                     {"typ": "object",  "pflicht": true,  "gilt_fuer": "alle", "felder": {"name": "string", "anschrift": "string", "berufsbezeichnung": "string"}},
+      "ausstellungsdatum":              {"typ": "date",    "pflicht": true,  "gilt_fuer": "alle"}
+    },
+    "flaeche": {
+      "_gilt_fuer": "alle",
+      "_hinweis": "POLYMORPH: Bei NWG ist nettogrundflaeche_m2 gesetzt, bei WG gebaeudenutzflaeche_an_m2. Genau eines der beiden ist die massgebliche Bezugsflaeche.",
+      "flaechenart":                {"typ": "enum",   "pflicht": true,  "gilt_fuer": "alle", "enum_ref": "flaechenart"},
+      "nettogrundflaeche_m2":       {"typ": "number", "pflicht": "NWG", "einheit": "m2", "gilt_fuer": "NWG", "hinweis": "nur beheizter/gekuehlter Teil"},
+      "gebaeudenutzflaeche_an_m2":  {"typ": "number", "pflicht": "WG",  "einheit": "m2", "gilt_fuer": "WG",  "hinweis": "A_N; Rechenwert, meist > Wohnflaeche (EFH: WF x1,35; MFH: WF x1,2)"},
+      "wohnflaeche_m2":             {"typ": "number", "pflicht": false, "einheit": "m2", "gilt_fuer": "WG",  "hinweis": "informativ; NICHT Bezugsflaeche der Kennwerte"}
+    },
+    "klassifizierung": {
+      "_gilt_fuer": "WG (aktuell); NWG ab GModG",
+      "energieeffizienzklasse":     {"typ": "enum", "pflicht": "WG ab EnEV 2014", "gilt_fuer": "WG", "enum_ref": "energieeffizienzklasse_wg", "hinweis": "null bei Ausweisen vor 05/2014; NWG haben aktuell keine Klasse"},
+      "bandtacho_skala_max_kwh_m2a":{"typ": "number", "pflicht": false, "gilt_fuer": "WG", "hinweis": "250 seit EnEV 2014, davor 400"},
+      "eu_effizienzklasse_ab_2026": {"typ": "enum", "pflicht": false, "gilt_fuer": "alle", "enum_ref": "energieeffizienzklasse_eu_ab_2026", "hinweis": "EU-harmonisiert A-G ab ~05/2026 (EPBD/GModG); NWG erhalten dann erstmals eine Klasse"}
+    },
+    "bedarf": {
+      "_seite": 2,
+      "_gilt_fuer": "wenn ausweistyp == Bedarfsausweis",
+      "primaerenergiebedarf_ist_kwh_m2a":            {"typ": "number", "pflicht": true, "einheit": "kWh/(m2*a)", "gilt_fuer": "alle", "hinweis": "steht direkt drauf; NICHT nachrechnen"},
+      "primaerenergiebedarf_anforderungswert_kwh_m2a": {"typ": "number", "pflicht": false, "einheit": "kWh/(m2*a)", "gilt_fuer": "alle"},
+      "endenergiebedarf_ist_kwh_m2a":                {"typ": "number", "pflicht": "WG", "einheit": "kWh/(m2*a)", "gilt_fuer": "WG", "hinweis": "WG-Einzelwert (Basis der Effizienzklasse)"},
+      "endenergiebedarf_waerme_kwh_m2a":             {"typ": "number", "pflicht": "NWG", "einheit": "kWh/(m2*a)", "gilt_fuer": "NWG", "hinweis": "ENGINE-INPUT (NWG-Pflichtangabe)"},
+      "endenergiebedarf_strom_kwh_m2a":              {"typ": "number", "pflicht": "NWG", "einheit": "kWh/(m2*a)", "gilt_fuer": "NWG", "hinweis": "ENGINE-INPUT (NWG-Pflichtangabe)"},
+      "treibhausgasemissionen_kg_co2e_m2a":          {"typ": "number", "pflicht": "ab GEG 2024", "einheit": "kg CO2e/(m2*a)", "gilt_fuer": "alle", "hinweis": "null vor 2024 -> Engine rechnet"},
+      "endenergiebedarf_je_traeger":                 {"typ": "array<object>", "pflicht": "NWG", "gilt_fuer": "NWG", "element": {
+          "energietraeger": "enum:energietraeger", "heizung_kwh_m2a": "number", "warmwasser_kwh_m2a": "number",
+          "beleuchtung_kwh_m2a": "number", "lueftung_kwh_m2a": "number", "kuehlung_befeuchtung_kwh_m2a": "number", "gebaeude_insgesamt_kwh_m2a": "number"
+        }, "hinweis": "Beleuchtung nur NWG"},
+      "berechnungsverfahren":                        {"typ": "enum", "pflicht": false, "gilt_fuer": "alle", "enum_ref": "verfahren_bedarf"},
+      "ee_65prozent":                                {"typ": "object", "pflicht": false, "gilt_fuer": "alle", "felder": {"erfuellt": "boolean", "erfuellungsoption": "string", "anteil_ee_prozent": "number"}},
+      "gebaeudezonen":                               {"typ": "array<object>", "pflicht": false, "gilt_fuer": "NWG", "element": {"nr": "integer", "zone": "string", "flaeche_m2": "number", "anteil_prozent": "number"}}
+    },
+    "verbrauch": {
+      "_seite": 3,
+      "_gilt_fuer": "wenn ausweistyp == Verbrauchsausweis",
+      "endenergieverbrauch_ist_kwh_m2a":     {"typ": "number", "pflicht": "WG", "einheit": "kWh/(m2*a)", "gilt_fuer": "WG", "hinweis": "WG-Einzelwert (Basis der Effizienzklasse)"},
+      "endenergieverbrauch_waerme_kwh_m2a":  {"typ": "number", "pflicht": "NWG", "einheit": "kWh/(m2*a)", "gilt_fuer": "NWG", "hinweis": "ENGINE-INPUT"},
+      "endenergieverbrauch_strom_kwh_m2a":   {"typ": "number", "pflicht": "NWG", "einheit": "kWh/(m2*a)", "gilt_fuer": "NWG", "hinweis": "ENGINE-INPUT"},
+      "warmwasser_enthalten":                {"typ": "boolean", "pflicht": false, "gilt_fuer": "alle"},
+      "kuehlung_enthalten":                  {"typ": "boolean", "pflicht": false, "gilt_fuer": "alle"},
+      "ww_pauschale_angewandt":              {"typ": "boolean", "pflicht": false, "gilt_fuer": "WG", "hinweis": "+20 kWh/m2a bei dezentraler WW-Bereitung ohne bekannten Verbrauch (§82)"},
+      "primaerenergieverbrauch_kwh_m2a":     {"typ": "number", "pflicht": false, "einheit": "kWh/(m2*a)", "gilt_fuer": "alle"},
+      "treibhausgasemissionen_kg_co2e_m2a":  {"typ": "number", "pflicht": "ab GEG 2024", "einheit": "kg CO2e/(m2*a)", "gilt_fuer": "alle"},
+      "klimafaktor":                         {"typ": "number", "pflicht": false, "gilt_fuer": "alle", "hinweis": "Witterungsbereinigung"},
+      "verbrauchserfassung":                 {"typ": "array<object>", "pflicht": true, "gilt_fuer": "alle", "element": {
+          "von": "date", "bis": "date", "energietraeger": "enum:energietraeger", "primaerenergiefaktor": "number",
+          "energieverbrauch_waerme_kwh": "number", "anteil_warmwasser_kwh": "number", "anteil_heizung_kwh": "number",
+          "anteil_kaelte_kwh": "number", "klimafaktor": "number", "energieverbrauch_strom_kwh": "number"
+        }, "hinweis": "i.d.R. 3 aufeinanderfolgende Jahre"},
+      "stromverbrauch_enthaelt":             {"typ": "array<enum>", "pflicht": false, "gilt_fuer": "NWG", "werte": ["Zusatzheizung", "Warmwasser", "Lueftung", "eingebaute Beleuchtung", "Kuehlung", "Sonstiges"]},
+      "gebaeudenutzung":                     {"typ": "array<object>", "pflicht": false, "gilt_fuer": "NWG", "element": {"gebaeudekategorie": "string", "flaechenanteil_prozent": "number", "vergleichswert_waerme": "number", "vergleichswert_strom": "number"}}
+    },
+    "empfehlungen": {
+      "_seite": 4,
+      "_gilt_fuer": "alle",
+      "modernisierungsempfehlungen": {"typ": "array<object>", "pflicht": true, "gilt_fuer": "alle", "element": {"nr": "integer", "bauteil_anlagenteil": "string", "empfohlene_massnahme": "string", "art": "string"}},
+      "keine_empfehlungen_moeglich": {"typ": "boolean", "pflicht": false, "gilt_fuer": "alle"}
+    }
+  },
+  "engine_mapping": {
+    "beschreibung": "Minimale Felder der deterministischen ESG-Engine, polymorph je nach Variante aufgeloest.",
+    "bezugsflaeche_m2":          "flaeche.nettogrundflaeche_m2 (NWG) | flaeche.gebaeudenutzflaeche_an_m2 (WG)",
+    "baujahr":                   "stammdaten.baujahr_gebaeude",
+    "crrem_nutzungsart":         "abgeleitet aus stammdaten.hauptnutzung_gebaeudekategorie",
+    "endenergie_waerme_kwh_m2a": "NWG: bedarf/verbrauch.endenergie*_waerme | WG: aus endenergie*_ist_kwh_m2a via Energietraeger-Split (Heizung vs Strom) rekonstruieren",
+    "endenergie_strom_kwh_m2a":  "NWG: bedarf/verbrauch.endenergie*_strom | WG: siehe oben (bei WG oft nur Waerme ausgewiesen; Haushaltsstrom meist NICHT enthalten)",
+    "energietraeger_waerme":     "stammdaten.energietraeger_heizung",
+    "primaerenergie_ist_kwh_m2a":"bedarf.primaerenergiebedarf_ist_kwh_m2a | verbrauch.primaerenergieverbrauch_kwh_m2a",
+    "co2_ist_kg_m2a":            "bedarf/verbrauch.treibhausgasemissionen_kg_co2e_m2a (null vor 2024 -> Engine rechnet)"
+  },
+  "toleranz_und_grenzen": {
+    "aeltere_ausweise": "Vor EnEV 2014: keine Effizienzklasse. Vor GEG 2024: keine THG-Angabe. energieeffizienzklasse/THG als null zulassen.",
+    "aushangmuster": "Vereinfachtes Aushang-Format (oeffentliche Gebaeude) hat weniger Felder -> nur Teilmenge erwartbar.",
+    "gemischte_nutzung": "§ 106 GEG: Wohn- und Nichtwohnteil >10% -> je EIN separater Ausweis. Als zwei Records behandeln.",
+    "ausland": "Oesterreich (EAVG) und Schweiz (GEAK) sind eigene Dokumente mit abweichender Struktur -> von diesem Schema NICHT abgedeckt.",
+    "wg_stromluecke": "WG-Ausweise weisen i.d.R. nur Heizung/Warmwasser aus, KEINEN Haushaltsstrom -> fuer eine strombasierte CO2-Rechnung fehlen Daten; Annahme dokumentieren."
+  }
+}
