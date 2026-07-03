@@ -361,7 +361,7 @@ export function mapToCrremType(
   if (t.includes("hotel") || t.includes("beherberg") || t.includes("pension")) return pick("HOT");
   if (t.includes("krankenhaus") || t.includes("klinik") || t.includes("pflege") || t.includes("gesundheit") || t.includes("ärzte") || t.includes("aerzte"))
     return pick("HEC");
-  if (t.includes("schule") || t.includes("kita") || t.includes("bildung") || t.includes("hochschule") || t.includes("universität") || t.includes("universitaet") || t.includes("kindergarten"))
+  if (t.includes("schule") || t.includes("kita") || t.includes("kinder") || t.includes("tagesstätte") || t.includes("tagesstaette") || t.includes("bildung") || t.includes("hochschule") || t.includes("universität") || t.includes("universitaet") || t.includes("kindergarten"))
     return pick("OFF", true); // Naeherung: keine Bildungsklasse in CRREM V2.04
   if (t.includes("sport") || t.includes("freizeit") || t.includes("kultur") || t.includes("museum") || t.includes("theater") || t.includes("schwimm") || t.includes("halle"))
     return pick("LEI");
@@ -381,8 +381,10 @@ export function mapToCrremType(
   if (t.includes("mehrfamilien") || t.includes("mfh") || t.includes("wohn") || t.includes("apartment") || t.includes("geschosswohnung"))
     return pick("RMF");
 
-  // Fallback ueber Gebaeudetyp
-  if ((gebaeudetyp ?? "").toLowerCase().includes("wohn")) return pick("RMF", true);
+  // Fallback ueber Gebaeudetyp. WICHTIG: exakt pruefen – "Nichtwohngebäude"
+  // enthaelt ebenfalls die Teilzeichenkette "wohn".
+  if ((gebaeudetyp ?? "").toLowerCase().replace(/[^a-zäöü]/g, "") === "wohngebäude")
+    return pick("RMF", true);
   return pick("OFF", true);
 }
 

@@ -368,8 +368,16 @@ export function AnalyseClient() {
           <div className="flex items-center gap-2">
             <Badge variant="secondary">{building.gebaeudetyp}</Badge>
             <Badge variant="outline">{building.ausweistyp}</Badge>
-            <Badge variant="outline">
+            <Badge
+              variant="outline"
+              title={
+                building.crremApproximated
+                  ? `Nutzungsart „${building.hauptnutzung ?? "?"}" hat keine eigene CRREM-Klasse und wurde näherungsweise als ${building.crremType} eingestuft – im Bereich „Erkannte Kennwerte prüfen" änderbar.`
+                  : `CRREM-Nutzungsart ${building.crremType}`
+              }
+            >
               CRREM {building.crremType}
+              {building.crremApproximated ? " ≈" : ""}
             </Badge>
             <Button variant="default" size="sm" onClick={exportPdf}>
               <Download className="h-4 w-4" />

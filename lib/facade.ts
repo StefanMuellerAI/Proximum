@@ -19,16 +19,16 @@ export const facadeVisionSchema = z.object({
     .number()
     .min(0)
     .max(100)
-    .describe("Bild 1 (Straßenansicht): Fenster-zu-Wand-Anteil der Fassade in %"),
+    .describe("Fenster-zu-Wand-Anteil in % – aus BEIDEN Bildern gemeinsam geschätzt"),
   konfidenz: z
     .enum(["hoch", "mittel", "gering"])
-    .describe("Sicherheit der WWR-Schätzung"),
+    .describe("Sicherheit der WWR-Schätzung (über beide Bilder)"),
   bildqualitaet: z
     .enum(["gut", "teilweise verdeckt", "schlecht"])
-    .describe("Qualität der Straßenansicht"),
+    .describe("Qualität der Fassadenbilder insgesamt"),
   sichtbare_fassade: z
     .enum(["voll", "teilweise", "kaum"])
-    .describe("Wie vollständig ist die Fassade sichtbar?"),
+    .describe("Wie vollständig sind die Fassaden über beide Bilder sichtbar?"),
   hinweise: z.string().describe("Kurzer Hinweis zur Fassade (Bäume/Autos/Winkel)"),
   // Bild 2: Luftbild (Dach)
   dach_ausrichtung: z
@@ -86,5 +86,12 @@ export interface FacadeResult {
  * Regel: Konfidenz "hoch" UND sichtbare Fassade "voll".
  */
 export function passesQualityGate(v: FacadeVision): boolean {
-  return v.konfidenz === "hoch" && v.sichtbare_fassade === "voll";
+  // Nur klar unbrauchbare Bilder verwerfen. (Die strenge Variante
+  // "hoch UND voll" wurde in der Praxis fast nie erfüllt -> WWR blieb immer
+  // beim Typologie-Standard.)
+  return (
+    v.konfidenz !== "gering" &&
+    v.sichtbare_fassade !== "kaum" &&
+    v.bildqualitaet !== "schlecht"
+  );
 }
