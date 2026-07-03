@@ -82,6 +82,7 @@ export function analyzeScenario(
     baseEnergyState(building),
     measureIds,
     building.wwrPercent,
+    building.pvYieldKwhPerM2,
   );
   const result = analyze(building, state, { useCertificateCo2: false });
   const investment = summarizeInvestment(measureIds, building.bezugsflaecheM2);

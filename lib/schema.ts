@@ -12,6 +12,7 @@ import {
   matchCarrier,
   mapToCrremType,
   TYPICAL_WWR,
+  TYPICAL_PV_YIELD_KWH_M2A,
   type CarrierKey,
   type CrremType,
 } from "@/lib/data/reference";
@@ -151,6 +152,10 @@ export interface NormalizedBuilding {
   wwrPercent: number;
   wwrSource: "bild" | "typologie" | "manuell";
 
+  // PV-Potenzial: Ertrag (kWh/m²·a bez. Bezugsflaeche) + Herkunft
+  pvYieldKwhPerM2: number;
+  pvSource: "bild" | "typologie" | "manuell";
+
   // Energie (kWh/m²·a)
   heatKwhM2a: number;
   electricityKwhM2a: number;
@@ -279,6 +284,8 @@ export function normalizeExtraction(
     epcClass: raw.energieeffizienzklasse ?? null,
     wwrPercent: TYPICAL_WWR[crremType],
     wwrSource: "typologie",
+    pvYieldKwhPerM2: TYPICAL_PV_YIELD_KWH_M2A,
+    pvSource: "typologie",
     heatKwhM2a,
     electricityKwhM2a,
     totalKwhM2a,

@@ -165,6 +165,17 @@ export function ReviewPanel({ building, onPatch }: Props) {
           }
         />
       </Field>
+
+      <Field label="PV-Ertrag (kWh/m²·a)" hint={`Quelle: ${building.pvSource}`}>
+        <input
+          className={inputCls}
+          type="number"
+          value={Math.round(building.pvYieldKwhPerM2)}
+          onChange={(e) =>
+            onPatch({ pvYieldKwhPerM2: num(e.target.value), pvSource: "manuell" })
+          }
+        />
+      </Field>
     </div>
   );
 }

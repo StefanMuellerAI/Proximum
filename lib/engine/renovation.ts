@@ -36,6 +36,7 @@ export function applyMeasures(
   base: EnergyState,
   ids: string[],
   wwrPercent?: number,
+  pvYieldKwhPerM2?: number,
 ): EnergyState {
   const measures = getMeasures(ids);
   let shares = cloneShares(base.perCarrier);
@@ -85,9 +86,11 @@ export function applyMeasures(
     }
   }
 
-  // 3) PV reduziert Netzstrom (kWh/m²·a)
+  // 3) PV reduziert Netzstrom (kWh/m²·a). Gebaeude-Wert (aus Luftbild) hat
+  //    Vorrang vor dem Massnahmen-Default.
   let pvYield = 0;
-  for (const m of measures) if (m.pvYieldKwhPerM2) pvYield += m.pvYieldKwhPerM2;
+  for (const m of measures)
+    if (m.pvYieldKwhPerM2) pvYield += pvYieldKwhPerM2 ?? m.pvYieldKwhPerM2;
   if (pvYield > 0) {
     // Zuerst vom Netzstrom abziehen, dann von uebrigem elektrischen Verbrauch
     const order = [...shares].sort((a, b) => {

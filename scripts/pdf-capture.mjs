@@ -4,6 +4,7 @@
  * Aufruf (bei laufendem Dev-Server): node scripts/pdf-capture.mjs
  */
 import { chromium } from "playwright-core";
+import { writeFileSync } from "node:fs";
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const OUT = "/tmp";
@@ -19,12 +20,21 @@ await page.goto("http://localhost:3000/", { waitUntil: "networkidle" });
 await page.click("text=Beispiel-Ausweis");
 await page.waitForURL("**/analyse");
 await page.waitForSelector("text=CRREM-Dekarbonisierung", { timeout: 30000 });
-console.log("dashboard geladen, warte auf Fassade/Risiko…");
-await page
-  .waitForSelector('img[alt="Fassade (Street View)"]', { timeout: 45000 })
-  .then(() => console.log("Fassadenbild vorhanden"))
-  .catch(() => console.log("kein Fassadenbild"));
-await page.waitForTimeout(4000);
+console.log("dashboard geladen, warte auf Fassade/Luftbild (Cesium)…");
+await page.waitForTimeout(28000); // Chain: Risiko -> Cesium-Capture -> Facade
+
+// Luftbild separat speichern, um es in Originalgroesse zu beurteilen
+const aerial = await page.evaluate(() => {
+  const imgs = Array.from(document.querySelectorAll("img"));
+  const a = imgs.find((i) => /Schrägluftbild|Satellit|Luftbild/.test(i.alt));
+  return a && a.src.startsWith("data:") ? a.src : null;
+});
+if (aerial) {
+  writeFileSync(`${OUT}/aerial.jpg`, Buffer.from(aerial.split(",")[1], "base64"));
+  console.log("Luftbild gespeichert: /tmp/aerial.jpg");
+} else {
+  console.log("kein Luftbild im Panel gefunden");
+}
 
 // Echtes Druck-PDF
 await page.pdf({

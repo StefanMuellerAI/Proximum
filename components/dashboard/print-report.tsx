@@ -1,6 +1,7 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element */
+import type { CSSProperties } from "react";
 import {
   LineChart,
   Line,
@@ -51,6 +52,21 @@ function sampleYears<T extends { year: number }>(series: T[]): T[] {
 
 const th = "border border-gray-400 px-2 py-1 text-left font-semibold";
 const td = "border border-gray-400 px-2 py-1";
+
+const imgStyle: CSSProperties = {
+  width: "210px",
+  height: "150px",
+  objectFit: "cover",
+  borderRadius: "6px",
+  border: "1px solid #cbd5e1",
+  display: "block",
+};
+const capStyle: CSSProperties = {
+  fontSize: "10px",
+  color: "#64748b",
+  textAlign: "center",
+  marginTop: "2px",
+};
 
 export function PrintReport({
   building,
@@ -378,37 +394,52 @@ export function PrintReport({
         </section>
       )}
 
-      {/* Fassade */}
+      {/* Fassade + Dach/PV */}
       <section className="mb-6 print-avoid-break">
-        <h2 className="mb-2 text-lg font-semibold">Gebäudehülle / Fassade</h2>
-        <div className="flex items-start gap-4">
+        <h2 className="mb-2 text-lg font-semibold">Gebäudehülle, Fassade & Dach</h2>
+        <div className="mb-3 flex items-start gap-3">
           {facade?.imageDataUrl && (
-            <img
-              src={facade.imageDataUrl}
-              alt="Fassade (Street View)"
-              width={220}
-              height={150}
-              style={{
-                width: "220px",
-                height: "150px",
-                objectFit: "cover",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                flexShrink: 0,
-              }}
-            />
+            <figure style={{ margin: 0 }}>
+              <img
+                src={facade.imageDataUrl}
+                alt="Fassade (Street View)"
+                width={210}
+                height={150}
+                style={imgStyle}
+              />
+              <figcaption style={capStyle}>Straßenansicht</figcaption>
+            </figure>
           )}
-          <p className="text-sm">
-            Fenster-zu-Wand-Anteil (WWR):{" "}
-            <strong>{Math.round(building.wwrPercent)}%</strong> (Quelle:{" "}
-            {building.wwrSource}
-            {facade?.source === "bild" && facade.konfidenz
-              ? `, Konfidenz ${facade.konfidenz}`
-              : ""}
-            ). {overheat.note} Der WWR bestimmt die Wirkung der Hüllen-Maßnahmen
-            (Fenster/Fassade/Dach).
-          </p>
+          {facade?.aerialImageDataUrl && (
+            <figure style={{ margin: 0 }}>
+              <img
+                src={facade.aerialImageDataUrl}
+                alt="Luftbild"
+                width={210}
+                height={150}
+                style={imgStyle}
+              />
+              <figcaption style={capStyle}>
+                {facade.aerialSource === "3d" ? "Schrägluftbild (3D)" : "Satellit"}
+              </figcaption>
+            </figure>
+          )}
         </div>
+        <p className="text-sm">
+          Fenster-zu-Wand-Anteil (WWR):{" "}
+          <strong>{Math.round(building.wwrPercent)}%</strong> (Quelle:{" "}
+          {building.wwrSource}
+          {facade?.source === "bild" && facade.konfidenz
+            ? `, Konfidenz ${facade.konfidenz}`
+            : ""}
+          ). {overheat.note}
+        </p>
+        <p className="mt-1 text-sm">
+          PV-Potenzial: <strong>{Math.round(building.pvYieldKwhPerM2)} kWh/m²·a</strong>{" "}
+          (Quelle: {building.pvSource}
+          {facade?.pvEignung ? `, Eignung ${facade.pvEignung}` : ""}
+          {facade?.dachAusrichtung ? `, Dach ${facade.dachAusrichtung}` : ""}).
+        </p>
       </section>
 
       {/* Klimarisiken (darf ueber Seiten umbrechen) */}

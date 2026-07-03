@@ -35,12 +35,22 @@ npm run dev                  # http://localhost:3000
 Ohne API-Key kann die App über „Mit Beispiel-Ausweis testen" (echter
 Test-Energieausweis) vollständig ausprobiert werden.
 
-## Fassaden-/WWR-Analyse (Street View)
+## Fassaden-/WWR-Analyse (Street View) + Schrägluftbild (PV)
 
-Für eine Adresse wird ein Fassadenbild geholt und per Vision-KI der
-Fenster-zu-Wand-Anteil (WWR) geschätzt. Der WWR verfeinert die Engine
-(Transmissionsverluste Wand/Fenster, Fenster-/Fassaden-ROI, Beleuchtung) und
-speist den Überhitzungsindikator (WWR × Hitze-Klimarisiko).
+Für eine Adresse werden **zwei Bilder** geholt und gemeinsam per Vision-KI
+ausgewertet:
+
+- **Straßenansicht (Street View)** → Fenster-zu-Wand-Anteil (WWR). Verfeinert die
+  Engine (Transmissionsverluste Wand/Fenster, Fenster-/Fassaden-ROI, Beleuchtung)
+  und speist den Überhitzungsindikator (WWR × Hitze-Klimarisiko).
+- **Schräges Luftbild** aus Google Photorealistic 3D Tiles (clientseitig mit
+  CesiumJS gerendert und als Frame erfasst; wo kein 3D vorhanden ist, Fallback auf
+  Satellit-Top-Down) → **Dachausrichtung + PV-Eignung**. Daraus wird ein
+  PV-Ertrag abgeleitet, der in die PV-Maßnahme des Simulators einfließt.
+
+Beide Bilder gehen in EINEN Vision-Call (`temperature: 0`). Cesium-Assets werden
+per `postinstall` (`scripts/copy-cesium.mjs`) nach `public/cesium` kopiert
+(gitignored, auf Vercel automatisch beim Install erzeugt).
 
 Ablauf in `[app/api/facade/route.ts](app/api/facade/route.ts)`:
 
@@ -108,8 +118,10 @@ scripts/crrem-extract.ts   CRREM-xlsx → JSON
 1. Repository zu GitHub pushen.
 2. In Vercel „New Project" → Repository importieren (Next.js wird erkannt).
 3. Environment-Variablen in Vercel setzen: `ANTHROPIC_API_KEY` (Pflicht),
-   optional `GOOGLE_MAPS_API_KEY` (für die Fassaden-/WWR-Analyse), sonst
-   `ANTHROPIC_MODEL` / `FACADE_MODEL`.
+   optional `GOOGLE_MAPS_API_KEY` (Server: Street View + Satellit),
+   `NEXT_PUBLIC_GOOGLE_MAPS_KEY` (Browser: Photorealistic 3D Tiles – per
+   HTTP-Referrer + „Map Tiles API" einschränken!), sonst `ANTHROPIC_MODEL` /
+   `FACADE_MODEL`.
 4. Deploy. `lib/data/crrem-de.json` ist eingecheckt und muss nicht neu erzeugt
    werden.
 

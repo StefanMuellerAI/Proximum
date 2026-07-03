@@ -14,28 +14,41 @@ export const FACADE_IMAGE = {
 
 /** Erzwungenes JSON-Schema, das das Vision-Modell zurueckgeben muss. */
 export const facadeVisionSchema = z.object({
+  // Bild 1: Strassenansicht (Fassade)
   fensteranteil_prozent: z
     .number()
     .min(0)
     .max(100)
-    .describe("Geschätzter Fenster-zu-Wand-Anteil der sichtbaren Fassade in Prozent"),
+    .describe("Bild 1 (Straßenansicht): Fenster-zu-Wand-Anteil der Fassade in %"),
   konfidenz: z
     .enum(["hoch", "mittel", "gering"])
-    .describe("Wie sicher ist die Schätzung?"),
+    .describe("Sicherheit der WWR-Schätzung"),
   bildqualitaet: z
     .enum(["gut", "teilweise verdeckt", "schlecht"])
-    .describe("Qualität/Verwertbarkeit des Bildes"),
+    .describe("Qualität der Straßenansicht"),
   sichtbare_fassade: z
     .enum(["voll", "teilweise", "kaum"])
-    .describe("Wie vollständig ist die Fassade im Bild sichtbar?"),
-  hinweise: z
+    .describe("Wie vollständig ist die Fassade sichtbar?"),
+  hinweise: z.string().describe("Kurzer Hinweis zur Fassade (Bäume/Autos/Winkel)"),
+  // Bild 2: Luftbild (Dach)
+  dach_ausrichtung: z
+    .enum(["Süd", "Ost-West", "Nord", "flach/unklar"])
+    .optional()
+    .describe("Bild 2 (Luftbild): Hauptausrichtung der Dachflächen"),
+  pv_eignung: z
+    .enum(["hoch", "mittel", "gering"])
+    .optional()
+    .describe("Eignung des Dachs für Photovoltaik (Fläche, Ausrichtung, Verschattung)"),
+  pv_hinweise: z
     .string()
-    .describe("Kurzer Hinweis, z. B. Bäume/Autos/Winkel/Verschattung"),
+    .optional()
+    .describe("Kurzer Hinweis zum Dach/PV (z. B. Gauben, Verschattung, Dachtyp)"),
 });
 
 export type FacadeVision = z.infer<typeof facadeVisionSchema>;
 
 export type FacadeSource = "bild" | "typologie" | "none";
+export type AerialSource = "3d" | "satellit" | "none";
 
 export interface FacadeResult {
   /** "bild" = verlässliche Bild-Schätzung; "typologie" = Bild verworfen; "none" = kein Bild/kein Key. */
@@ -56,8 +69,16 @@ export interface FacadeResult {
   heading: number | null;
   fov: number;
   pitch: number;
-  /** Base64-Bild zur Anzeige (ohne API-Key). */
+  /** Base64-Fassadenbild (Street View) zur Anzeige (ohne API-Key). */
   imageDataUrl: string | null;
+
+  // Luftbild (Dach) + abgeleitete PV-Infos
+  aerialSource: AerialSource;
+  aerialImageDataUrl: string | null;
+  dachAusrichtung: FacadeVision["dach_ausrichtung"] | null;
+  pvEignung: FacadeVision["pv_eignung"] | null;
+  pvYieldKwhPerM2: number | null;
+  pvHinweise: string | null;
 }
 
 /**

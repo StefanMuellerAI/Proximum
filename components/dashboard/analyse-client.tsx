@@ -47,6 +47,7 @@ import { ReviewPanel } from "@/components/dashboard/review-panel";
 import { Simulator } from "@/components/dashboard/simulator";
 import { FacadePanel } from "@/components/dashboard/facade-panel";
 import { PrintReport } from "@/components/dashboard/print-report";
+import { AerialCapture } from "@/components/dashboard/aerial-capture";
 import { Home } from "lucide-react";
 
 function simplePerCarrier(
@@ -93,6 +94,9 @@ export function AnalyseClient() {
     "idle" | "loading" | "error" | "done"
   >("idle");
   const [reviewOpen, setReviewOpen] = React.useState(false);
+  const [aerialResolved, setAerialResolved] = React.useState(false);
+  const aerialUrlRef = React.useRef<string | null>(null);
+  const facadeStartedRef = React.useRef(false);
 
   React.useEffect(() => {
     const p = loadAnalysis();
@@ -137,14 +141,36 @@ export function AnalyseClient() {
     };
   }, [address]);
 
+  // Koordinaten aus der Risiko-Geokodierung steuern die Schräg-Luftaufnahme.
+  const coords = risk?.location
+    ? { lat: risk.location.lat, lon: risk.location.lon }
+    : null;
+
+  // Ohne Standort (Risiko-Fehler) direkt ohne 3D-Luftbild weiter.
   React.useEffect(() => {
-    if (!address) return;
+    if (riskStatus === "error") setAerialResolved(true);
+  }, [riskStatus]);
+
+  const handleAerial = React.useCallback((url: string | null) => {
+    aerialUrlRef.current = url;
+    setAerialResolved(true);
+  }, []);
+
+  // Fassaden-/Dual-Bild-Analyse startet, sobald die Luftbild-Phase fertig ist.
+  React.useEffect(() => {
+    if (!address || !aerialResolved || facadeStartedRef.current) return;
+    facadeStartedRef.current = true;
     let cancelled = false;
     setFacadeStatus("loading");
     fetch("/api/facade", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ address }),
+      body: JSON.stringify({
+        address,
+        lat: coords?.lat,
+        lon: coords?.lon,
+        aerialImageDataUrl: aerialUrlRef.current ?? undefined,
+      }),
     })
       .then(async (r) => {
         const d = await r.json();
@@ -155,14 +181,15 @@ export function AnalyseClient() {
         if (cancelled) return;
         setFacade(d);
         setFacadeStatus("done");
-        // Bild-WWR uebernehmen, sofern nicht manuell ueberschrieben
-        if (d.source === "bild" && d.wwrPercent != null) {
-          setBuilding((prev) =>
-            prev && prev.wwrSource !== "manuell"
-              ? { ...prev, wwrPercent: d.wwrPercent!, wwrSource: "bild" }
-              : prev,
-          );
-        }
+        setBuilding((prev) => {
+          if (!prev) return prev;
+          let next = prev;
+          if (d.source === "bild" && d.wwrPercent != null && prev.wwrSource !== "manuell")
+            next = { ...next, wwrPercent: d.wwrPercent, wwrSource: "bild" };
+          if (d.pvYieldKwhPerM2 != null && prev.pvSource !== "manuell")
+            next = { ...next, pvYieldKwhPerM2: d.pvYieldKwhPerM2, pvSource: "bild" };
+          return next;
+        });
       })
       .catch(() => {
         if (!cancelled) setFacadeStatus("error");
@@ -170,12 +197,17 @@ export function AnalyseClient() {
     return () => {
       cancelled = true;
     };
-  }, [address]);
+  }, [address, aerialResolved, coords?.lat, coords?.lon]);
 
   const analytics = React.useMemo(() => {
     if (!building) return null;
     const baseState = baseEnergyState(building);
-    const scenState = applyMeasures(baseState, selected, building.wwrPercent);
+    const scenState = applyMeasures(
+      baseState,
+      selected,
+      building.wwrPercent,
+      building.pvYieldKwhPerM2,
+    );
     const base = analyze(building, baseState, { useCertificateCo2: false });
     const scen = analyze(building, scenState, { useCertificateCo2: false });
     const invest = summarizeInvestment(selected, building.bezugsflaecheM2);
@@ -283,6 +315,16 @@ export function AnalyseClient() {
 
   return (
     <main className="min-h-screen pb-16">
+      {/* Schräg-Luftbild-Erfassung (offscreen, einmalig) */}
+      {coords && !aerialResolved && (
+        <AerialCapture
+          lat={coords.lat}
+          lon={coords.lon}
+          enabled
+          onResult={handleAerial}
+        />
+      )}
+
       {/* Druck-Report (nur beim PDF-Export sichtbar) */}
       <div className="print-only">
         <PrintReport
@@ -541,6 +583,8 @@ export function AnalyseClient() {
               status={facadeStatus}
               wwrPercent={building.wwrPercent}
               wwrSource={building.wwrSource}
+              pvYieldKwhPerM2={building.pvYieldKwhPerM2}
+              pvSource={building.pvSource}
             />
           </CardContent>
         </Card>

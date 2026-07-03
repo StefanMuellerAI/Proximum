@@ -323,6 +323,26 @@ export const U_VALUES: Record<EnvelopeComponent, { alt: number; neu: number }> =
   floor: { alt: 0.8, neu: 0.3 },
 };
 
+// ---------------------------------------------------------------------------
+// PV-Potenzial (aus Luftbild-Dacheignung abgeleitet)
+// ---------------------------------------------------------------------------
+
+export type PvEignung = "hoch" | "mittel" | "gering";
+
+/**
+ * PV-Ertrag, der Netzstrom ersetzt (kWh je m² Bezugsflaeche und Jahr), je nach
+ * Dacheignung. Naeherung: koppelt Dachflaeche/Ausrichtung an eine Einsparung
+ * bezogen auf die Bezugsflaeche (dokumentierte Heuristik).
+ */
+export const PV_YIELD_BY_EIGNUNG: Record<PvEignung, number> = {
+  hoch: 35,
+  mittel: 20,
+  gering: 8,
+};
+
+/** Typologie-Default fuer den PV-Ertrag, wenn kein Luftbild vorliegt. */
+export const TYPICAL_PV_YIELD_KWH_M2A = 20;
+
 /**
  * Leitet aus der Hauptnutzung/Gebaeudekategorie einen CRREM-Code ab.
  * Hinweis: CRREM V2.04 kennt KEINE eigene Bildungs-Nutzungsart -> Schulen/Kitas
