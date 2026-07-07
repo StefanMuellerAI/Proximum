@@ -846,20 +846,6 @@ export function PrintReport({
                 <figcaption style={capStyle}>Straßenansicht</figcaption>
               </figure>
             )}
-            {facade?.aerialImageDataUrl && (
-              <figure style={{ margin: 0 }}>
-                <img
-                  src={facade.aerialImageDataUrl}
-                  alt="Luftbild"
-                  width={210}
-                  height={150}
-                  style={imgStyle}
-                />
-                <figcaption style={capStyle}>
-                  {facade.aerialSource === "3d" ? "Schrägluftbild (3D)" : "Satellit"}
-                </figcaption>
-              </figure>
-            )}
           </div>
           <p style={{ margin: 0, fontSize: "11.5px" }}>
             Fenster-zu-Wand-Anteil (WWR):{" "}
@@ -873,9 +859,26 @@ export function PrintReport({
           <p style={{ margin: "4px 0 0", fontSize: "11.5px" }}>
             PV-Potenzial:{" "}
             <strong>{Math.round(building.pvYieldKwhPerM2)} kWh/m²·a</strong>{" "}
-            (Quelle: {building.pvSource}
-            {facade?.pvEignung ? `, Eignung ${facade.pvEignung}` : ""}
-            {facade?.dachAusrichtung ? `, Dach ${facade.dachAusrichtung}` : ""}).
+            (Quelle:{" "}
+            {building.pvSource === "solar"
+              ? "Google Solar API"
+              : building.pvSource}
+            {facade?.solar?.status === "ok" ? (
+              <>
+                {facade.solar.roofAreaM2 != null
+                  ? `, nutzbare Dachfläche ${formatNumber(facade.solar.roofAreaM2, 0)} m²`
+                  : ""}
+                {facade.solar.yearlyEnergyDcKwh != null
+                  ? `, max. Jahresertrag ${formatNumber(facade.solar.yearlyEnergyDcKwh, 0)} kWh/a`
+                  : ""}
+                {facade.solar.imageryDate
+                  ? `, Befliegung ${facade.solar.imageryDate}`
+                  : ""}
+              </>
+            ) : (
+              ""
+            )}
+            ).
           </p>
         </section>
       )}

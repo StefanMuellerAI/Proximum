@@ -20,8 +20,8 @@ await page.goto("http://localhost:3000/", { waitUntil: "networkidle" });
 await page.click("text=Beispiel-Ausweis");
 await page.waitForURL("**/analyse");
 await page.waitForSelector("text=CRREM-Dekarbonisierung", { timeout: 30000 });
-console.log("dashboard geladen, warte auf Fassade/Luftbild (Cesium)…");
-await page.waitForTimeout(28000); // Chain: Risiko -> Cesium-Capture -> Facade
+console.log("dashboard geladen, warte auf Fassaden-/Solar-Analyse…");
+await page.waitForTimeout(15000); // Chain: Risiko -> Facade (Street View + Solar)
 
 // Luftbild separat speichern, um es in Originalgroesse zu beurteilen
 const aerial = await page.evaluate(() => {

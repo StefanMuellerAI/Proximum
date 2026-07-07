@@ -16,7 +16,7 @@ export default clerkMiddleware(
 export const config = {
   matcher: [
     // Next.js-Interna und statische Dateien ueberspringen
-    "/((?!_next|cesium|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest|glb|b3dm|json)).*)",
+    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest|glb|b3dm|json)).*)",
     "/(api|trpc)(.*)",
   ],
 };

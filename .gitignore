@@ -29,6 +29,3 @@ next-env.d.ts
 
 # vercel
 .vercel
-
-# generated cesium assets (regenerated via postinstall)
-/public/cesium

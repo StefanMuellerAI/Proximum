@@ -2,14 +2,15 @@ import { NextResponse } from "next/server";
 import { generateObject } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { and, eq } from "drizzle-orm";
-import { geocode, bearing } from "@/lib/geocode";
+import { geocode, bearing, type GeocodePrecision } from "@/lib/geocode";
 import {
   FACADE_IMAGE,
   facadeVisionSchema,
   passesQualityGate,
+  roundWwrToStep,
   type FacadeResult,
 } from "@/lib/facade";
-import { PV_YIELD_BY_EIGNUNG } from "@/lib/data/reference";
+import { fetchSolarInfo, solarUnavailable, type SolarInfo } from "@/lib/solar";
 import { getDb, hasDatabase } from "@/lib/db";
 import { buildings } from "@/lib/db/schema";
 import { scopeFilter } from "@/lib/db/scope";
@@ -22,22 +23,16 @@ export const maxDuration = 60;
 const MODEL = process.env.FACADE_MODEL || "claude-haiku-4-5";
 const META_URL = "https://maps.googleapis.com/maps/api/streetview/metadata";
 const IMG_URL = "https://maps.googleapis.com/maps/api/streetview";
-const STATIC_URL = "https://maps.googleapis.com/maps/api/staticmap";
 
-const SYSTEM_PROMPT = `Du bist Experte für Gebäude und erhältst bis zu zwei Bilder desselben Gebäudes:
-BILD 1 = Straßenansicht (Fassade frontal), BILD 2 = schräges Luftbild (Dach + weitere Fassaden von oben).
+const SYSTEM_PROMPT = `Du bist Experte für Gebäude und erhältst EIN Bild: die Straßenansicht (Fassade frontal).
 
-Aufgaben:
-- FENSTER-ZU-WAND-ANTEIL (WWR, %): Nutze ALLE verfügbaren Bilder gemeinsam. Die Straßenansicht
-  zeigt eine Fassade frontal, das Schrägluftbild zeigt zusätzlich weitere Fassaden und deren
-  Verglasung. Bilde daraus einen konsistenten Gesamt-WWR und beurteile Konfidenz, Bildqualität
-  und Sichtbarkeit der Fassaden (über beide Bilder).
-- PV: Dachausrichtung und PV-Eignung AUSSCHLIESSLICH aus dem Luftbild (BILD 2). Ohne Luftbild
-  lass dach_ausrichtung/pv_eignung/pv_hinweise weg.
+Aufgabe: Schätze den FENSTER-ZU-WAND-ANTEIL (WWR, %) der sichtbaren Fassade und
+beurteile Konfidenz, Bildqualität und Sichtbarkeit der Fassade.
 
-Türen zählen nicht als Fenster. Bewerte ehrlich; bei Verdeckung Konfidenz senken.`;
+Türen zählen nicht als Fenster. Bewerte ehrlich; bei Verdeckung Konfidenz senken.
+Antworte reproduzierbar: gleiches Bild -> gleiche Werte.`;
 
-function fallback(reason: string): FacadeResult {
+function fallback(reason: string, solar: SolarInfo | null = null): FacadeResult {
   return {
     source: "none",
     wwrPercent: null,
@@ -54,23 +49,8 @@ function fallback(reason: string): FacadeResult {
     fov: FACADE_IMAGE.fov,
     pitch: FACADE_IMAGE.pitch,
     imageDataUrl: null,
-    aerialSource: "none",
-    aerialImageDataUrl: null,
-    dachAusrichtung: null,
-    pvEignung: null,
-    pvYieldKwhPerM2: null,
-    pvHinweise: null,
+    solar,
   };
-}
-
-function dataUrlToBytes(d: string): Uint8Array | null {
-  const m = /^data:image\/[a-z0-9.+-]+;base64,(.+)$/i.exec(d);
-  if (!m) return null;
-  try {
-    return new Uint8Array(Buffer.from(m[1], "base64"));
-  } catch {
-    return null;
-  }
 }
 
 export async function POST(req: Request) {
@@ -88,21 +68,26 @@ export async function POST(req: Request) {
   let address: string | undefined;
   let lat: number | undefined;
   let lon: number | undefined;
-  let aerialImageDataUrl: string | undefined;
+  let praezision: GeocodePrecision | undefined;
   let buildingId: string | undefined;
   try {
     const body = await req.json();
     if (typeof body?.address === "string") address = body.address.trim();
     if (typeof body?.lat === "number") lat = body.lat;
     if (typeof body?.lon === "number") lon = body.lon;
-    if (typeof body?.aerialImageDataUrl === "string")
-      aerialImageDataUrl = body.aerialImageDataUrl;
+    if (
+      body?.praezision === "adresse" ||
+      body?.praezision === "strasse" ||
+      body?.praezision === "ort"
+    )
+      praezision = body.praezision;
     if (typeof body?.buildingId === "string") buildingId = body.buildingId;
   } catch {
     return NextResponse.json({ error: "Ungültiger JSON-Body." }, { status: 400 });
   }
 
-  // DB-Cache laden (Re-Fetch nur wenn leer oder pano_date geaendert)
+  // DB-Cache laden (Re-Fetch nur wenn leer, pano_date geaendert oder noch
+  // ohne Solar-Daten aus der alten Pipeline)
   const scope = buildingId && hasDatabase() ? await getOwnerScope() : null;
   let cachedFacade: FacadeResult | null = null;
   let cachedPanoDate: string | null = null;
@@ -122,6 +107,8 @@ export async function POST(req: Request) {
       // Cache-Fehler ignorieren
     }
   }
+  // Cache-Eintraege der alten Pipeline (ohne solar-Feld) nicht wiederverwenden
+  const cacheUsable = cachedFacade != null && cachedFacade.solar !== undefined;
 
   if (lat == null || lon == null) {
     if (!address)
@@ -131,12 +118,27 @@ export async function POST(req: Request) {
       if (!geo) return NextResponse.json(fallback("Adresse nicht geokodierbar"));
       lat = geo.lat;
       lon = geo.lon;
+      praezision = geo.praezision;
     } catch {
       return NextResponse.json(fallback("Geocoding fehlgeschlagen"));
     }
   }
 
-  // --- Bild 1: Street View (Fassade) – optional ---
+  // Praezisions-Gate: Bei Stadt-/PLZ-Aufloesung wuerden Street View und
+  // Solar API ein fremdes Gebaeude bewerten -> sauber auf Defaults ausweisen.
+  if (praezision === "ort") {
+    return NextResponse.json(
+      fallback(
+        "Adresse nur auf PLZ/Ort-Ebene auflösbar – gebäudescharfe Analyse übersprungen",
+        solarUnavailable("Adresse nur auf PLZ/Ort-Ebene auflösbar"),
+      ),
+    );
+  }
+
+  // --- PV: Google Solar API (datenbasiert, deterministisch) ---
+  const solar = await fetchSolarInfo(lat, lon, key);
+
+  // --- Street-View-Bild (fixes pano_id/heading -> reproduzierbar) ---
   let streetBytes: Uint8Array | null = null;
   let imageDataUrl: string | null = null;
   let heading: number | null = null;
@@ -159,7 +161,7 @@ export async function POST(req: Request) {
 
       // Cache-Treffer: gleiches Panorama wie beim letzten Abruf -> kein
       // erneuter (bezahlter) Bildabruf und keine erneute Vision-Analyse.
-      if (cachedFacade && cachedPanoDate && panoDate === cachedPanoDate) {
+      if (cacheUsable && cachedPanoDate && panoDate === cachedPanoDate) {
         return NextResponse.json(cachedFacade);
       }
 
@@ -181,84 +183,46 @@ export async function POST(req: Request) {
     streetReason = "Street-View-Abruf fehlgeschlagen";
   }
 
-  // Kein (neues) Street-View-Bild verfuegbar, aber Cache vorhanden -> Cache
+  // Kein (neues) Street-View-Bild verfuegbar, aber brauchbarer Cache -> Cache
   // liefern statt Vision erneut zu bezahlen.
-  if (cachedFacade && !streetBytes) return NextResponse.json(cachedFacade);
+  if (cacheUsable && !streetBytes) return NextResponse.json(cachedFacade);
 
-  // --- Bild 2: Luftbild (Client-3D-Schrägbild oder Satellit-Fallback) ---
-  let aerialBytes: Uint8Array | null = null;
-  let aerialSource: FacadeResult["aerialSource"] = "none";
-  let aerialDisplay: string | null = null;
-  if (aerialImageDataUrl) {
-    aerialBytes = dataUrlToBytes(aerialImageDataUrl);
-    if (aerialBytes) {
-      aerialSource = "3d";
-      aerialDisplay = aerialImageDataUrl;
-    }
-  }
-  if (!aerialBytes) {
-    try {
-      const url = `${STATIC_URL}?center=${lat},${lon}&zoom=19&size=640x640&maptype=satellite&key=${key}`;
-      const res = await fetch(url);
-      if (res.ok) {
-        aerialBytes = new Uint8Array(await res.arrayBuffer());
-        aerialSource = "satellit";
-        aerialDisplay = `data:image/jpeg;base64,${Buffer.from(aerialBytes).toString("base64")}`;
-      }
-    } catch {
-      /* Satellit optional */
-    }
-  }
-
-  if (!streetBytes && !aerialBytes)
-    return NextResponse.json(fallback(streetReason ?? "Keine Bilder verfügbar"));
+  if (!streetBytes)
+    return NextResponse.json(fallback(streetReason ?? "Kein Fassadenbild verfügbar", solar));
 
   if (!process.env.ANTHROPIC_API_KEY)
-    return NextResponse.json(fallback("Kein ANTHROPIC_API_KEY für Bildanalyse"));
+    return NextResponse.json(fallback("Kein ANTHROPIC_API_KEY für Bildanalyse", solar));
 
-  // --- Vision: verfügbare Bilder in EINEM Call (WWR aus beiden, PV nur Luftbild) ---
-  const content: Array<
-    | { type: "text"; text: string }
-    | { type: "file"; data: Uint8Array; mediaType: string }
-  > = [
-    {
-      type: "text",
-      text: "Analysiere die folgenden Bild(er) und fülle das Schema.",
-    },
-  ];
-  if (streetBytes) {
-    content.push({ type: "text", text: "BILD 1 – Straßenansicht (Fassade):" });
-    content.push({ type: "file", data: streetBytes, mediaType: "image/jpeg" });
-  }
-  if (aerialBytes) {
-    content.push({ type: "text", text: "BILD 2 – Luftbild (Dach + Fassaden von schräg/oben):" });
-    content.push({ type: "file", data: aerialBytes, mediaType: "image/jpeg" });
-  }
-
+  // --- Vision: WWR aus dem Street-View-Bild (temperature 0) ---
   let vision;
   try {
     const { object } = await generateObject({
       model: anthropic(MODEL),
       schema: facadeVisionSchema,
-      schemaName: "FassadenLuftbildAnalyse",
+      schemaName: "FassadenAnalyse",
       system: SYSTEM_PROMPT,
       temperature: 0,
-      messages: [{ role: "user", content }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Analysiere die Fassade und fülle das Schema." },
+            { type: "file", data: streetBytes, mediaType: "image/jpeg" },
+          ],
+        },
+      ],
     });
     vision = object;
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Vision-Fehler";
-    return NextResponse.json(fallback(`Bildanalyse fehlgeschlagen: ${msg}`));
+    return NextResponse.json(fallback(`Bildanalyse fehlgeschlagen: ${msg}`, solar));
   }
 
   const wwrOk = passesQualityGate(vision);
-  const pvYieldKwhPerM2 = vision.pv_eignung
-    ? PV_YIELD_BY_EIGNUNG[vision.pv_eignung]
-    : null;
 
   const result: FacadeResult = {
     source: wwrOk ? "bild" : "typologie",
-    wwrPercent: wwrOk ? Math.round(vision.fensteranteil_prozent) : null,
+    wwrPercent: wwrOk ? roundWwrToStep(vision.fensteranteil_prozent) : null,
     konfidenz: vision.konfidenz,
     bildqualitaet: vision.bildqualitaet,
     sichtbareFassade: vision.sichtbare_fassade,
@@ -274,12 +238,7 @@ export async function POST(req: Request) {
     fov: FACADE_IMAGE.fov,
     pitch: FACADE_IMAGE.pitch,
     imageDataUrl,
-    aerialSource,
-    aerialImageDataUrl: aerialDisplay,
-    dachAusrichtung: vision.dach_ausrichtung ?? null,
-    pvEignung: vision.pv_eignung ?? null,
-    pvYieldKwhPerM2,
-    pvHinweise: vision.pv_hinweise ?? null,
+    solar,
   };
 
   // Ergebnis im Gebaeude cachen (pano_date als Cache-Schluessel)

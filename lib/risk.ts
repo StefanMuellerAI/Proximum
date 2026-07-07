@@ -33,6 +33,11 @@ export interface RiskLocation {
   plz: string;
   ort: string;
   matchedLabel: string;
+  /**
+   * Geocoding-Praezision. Optional, da aeltere gecachte Ergebnisse das Feld
+   * nicht haben (dann als "adresse" behandeln, Bestandsdaten nicht degradieren).
+   */
+  praezision?: "adresse" | "strasse" | "ort";
 }
 
 export interface RiskResult {

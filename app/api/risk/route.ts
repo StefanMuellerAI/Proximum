@@ -119,6 +119,7 @@ export async function POST(req: Request) {
       plz: geo.plz,
       ort: geo.ort,
       matchedLabel: geo.displayName,
+      praezision: geo.praezision,
     },
     hazards,
     groups,

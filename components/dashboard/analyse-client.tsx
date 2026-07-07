@@ -62,7 +62,7 @@ import { ReviewPanel } from "@/components/dashboard/review-panel";
 import { Simulator } from "@/components/dashboard/simulator";
 import { FacadePanel } from "@/components/dashboard/facade-panel";
 import { PrintReport } from "@/components/dashboard/print-report";
-import { AerialCapture } from "@/components/dashboard/aerial-capture";
+import { pvYieldFromSolar } from "@/lib/solar";
 import { Home } from "lucide-react";
 
 function strandingLabel(year: number | null): string {
@@ -99,10 +99,11 @@ export function AnalyseClient() {
     error: riskError,
   } = useRisk(address, buildingId, cachedRisk);
 
-  // Koordinaten aus der Risiko-Geokodierung steuern die Schräg-Luftaufnahme.
+  // Koordinaten + Praezision aus der Risiko-Geokodierung.
   const coords = risk?.location
     ? { lat: risk.location.lat, lon: risk.location.lon }
     : null;
+  const geoPraezision = risk?.location?.praezision ?? null;
 
   const applyFacadeToBuilding = React.useCallback(
     (d: FacadeResult) => {
@@ -111,8 +112,10 @@ export function AnalyseClient() {
         let next = prev;
         if (d.source === "bild" && d.wwrPercent != null && prev.wwrSource !== "manuell")
           next = { ...next, wwrPercent: d.wwrPercent, wwrSource: "bild" };
-        if (d.pvYieldKwhPerM2 != null && prev.pvSource !== "manuell")
-          next = { ...next, pvYieldKwhPerM2: d.pvYieldKwhPerM2, pvSource: "bild" };
+        // PV datenbasiert aus der Solar API (deterministisch je Gebaeude)
+        const pvYield = pvYieldFromSolar(d.solar, prev.bezugsflaecheM2);
+        if (pvYield != null && prev.pvSource !== "manuell")
+          next = { ...next, pvYieldKwhPerM2: pvYield, pvSource: "solar" };
         return next;
       });
     },
@@ -122,14 +125,10 @@ export function AnalyseClient() {
   // Minimalistische Gebaeudegrafik (OSM-Grundriss, gecacht je Gebaeude)
   const footprint = useFootprint(coords, buildingId, cachedFootprint);
 
-  const {
-    facade,
-    status: facadeStatus,
-    aerialResolved,
-    handleAerial,
-  } = useFacade({
+  const { facade, status: facadeStatus } = useFacade({
     address,
     coords,
+    praezision: geoPraezision,
     buildingId,
     cached: cachedFacade,
     riskStatus,
@@ -239,16 +238,6 @@ export function AnalyseClient() {
 
   return (
     <main className="min-h-screen pb-16">
-      {/* Schräg-Luftbild-Erfassung (offscreen, einmalig) */}
-      {coords && !aerialResolved && (
-        <AerialCapture
-          lat={coords.lat}
-          lon={coords.lon}
-          enabled
-          onResult={handleAerial}
-        />
-      )}
-
       {/* Druck-Report (nur beim PDF-Export sichtbar) */}
       <div className="print-only">
         <PrintReport

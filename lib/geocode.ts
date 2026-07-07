@@ -8,6 +8,14 @@ const UTM32 =
   "+proj=utm +zone=32 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs";
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
 
+/**
+ * Aufloesungs-Praezision: "adresse" = Hausnummer getroffen, "strasse" =
+ * nur Strasse, "ort" = nur PLZ/Ort (Stadtebene). Bei "ort" duerfen keine
+ * gebaeudespezifischen Analysen (Street View, Solar) laufen, sonst wird
+ * ein fremdes Gebaeude bewertet.
+ */
+export type GeocodePrecision = "adresse" | "strasse" | "ort";
+
 export interface GeocodeResult {
   lat: number;
   lon: number;
@@ -15,6 +23,7 @@ export interface GeocodeResult {
   strasseHausnummer: string;
   plz: string;
   ort: string;
+  praezision: GeocodePrecision;
 }
 
 interface NominatimResult {
@@ -60,6 +69,15 @@ function plzOrt(address: string): string | null {
   return `${m[1]} ${m[2].split(/[,;]/)[0].trim()}`;
 }
 
+/** Praezision aus den Nominatim-Adressdetails ableiten (pur, testbar). */
+export function precisionFromAddress(
+  address: { road?: string; house_number?: string } | undefined,
+): GeocodePrecision {
+  if (address?.house_number) return "adresse";
+  if (address?.road) return "strasse";
+  return "ort";
+}
+
 async function geocodeOne(query: string): Promise<GeocodeResult | null> {
   const url = `${NOMINATIM}?q=${encodeURIComponent(
     query,
@@ -82,6 +100,7 @@ async function geocodeOne(query: string): Promise<GeocodeResult | null> {
     strasseHausnummer: [a.road, a.house_number].filter(Boolean).join(" "),
     plz: a.postcode ?? "",
     ort: a.city || a.town || a.village || a.municipality || a.suburb || "",
+    praezision: precisionFromAddress(g.address),
   };
 }
 

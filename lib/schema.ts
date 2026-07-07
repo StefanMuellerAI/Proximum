@@ -144,6 +144,9 @@ export interface CarrierShare {
  */
 export type FlagSeverity = "warnung" | "hinweis";
 
+/** Herkunft eines abgeleiteten Werts (WWR/PV). */
+export type ValueSource = "bild" | "typologie" | "manuell" | "solar";
+
 export interface PlausibilityFlag {
   field:
     | "bezugsflaecheM2"
@@ -184,11 +187,12 @@ export interface NormalizedBuilding {
 
   // Gebaeudehuelle: Fenster-zu-Wand-Anteil (WWR) in Prozent + Herkunft
   wwrPercent: number;
-  wwrSource: "bild" | "typologie" | "manuell";
+  wwrSource: ValueSource;
 
   // PV-Potenzial: Ertrag (kWh/m²·a bez. Bezugsflaeche) + Herkunft
+  // ("solar" = Google Solar API; "bild" nur noch fuer Alt-Daten)
   pvYieldKwhPerM2: number;
-  pvSource: "bild" | "typologie" | "manuell";
+  pvSource: ValueSource;
 
   // Energie (kWh/m²·a)
   heatKwhM2a: number;
@@ -227,7 +231,7 @@ const crremTypeSchema = z.custom<CrremType>(
   "Unbekannte CRREM-Nutzungsart",
 );
 
-const sourceSchema = z.enum(["bild", "typologie", "manuell"]);
+const sourceSchema = z.enum(["bild", "typologie", "manuell", "solar"]);
 
 const plausibilityFlagSchema = z.object({
   field: z.enum([

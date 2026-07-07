@@ -2,8 +2,8 @@ import type { NextConfig } from "next";
 
 /**
  * Security-Header fuer alle Routen. Kein CSP-Header: Clerk (Sign-in-Widgets)
- * und Cesium (dynamisches Script/Worker-Loading) benoetigen eine aufwendige
- * Allowlist; bei Bedarf spaeter als Report-Only einfuehren.
+ * benoetigt eine aufwendige Allowlist; bei Bedarf spaeter als Report-Only
+ * einfuehren.
  */
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },

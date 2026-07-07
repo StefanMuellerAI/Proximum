@@ -35,34 +35,34 @@ npm run dev                  # http://localhost:3000
 Ohne API-Key kann die App über „Mit Beispiel-Ausweis testen" (echter
 Test-Energieausweis) vollständig ausprobiert werden.
 
-## Fassaden-/WWR-Analyse (Street View) + Schrägluftbild (PV)
+## Fassaden-/WWR-Analyse (Street View) + PV (Google Solar API)
 
-Für eine Adresse werden **zwei Bilder** geholt und gemeinsam per Vision-KI
-ausgewertet:
+Für eine Adresse laufen zwei **deterministische** Analysen:
 
-- **Straßenansicht (Street View)** → Fenster-zu-Wand-Anteil (WWR). Verfeinert die
-  Engine (Transmissionsverluste Wand/Fenster, Fenster-/Fassaden-ROI, Beleuchtung)
-  und speist den Überhitzungsindikator (WWR × Hitze-Klimarisiko).
-- **Schräges Luftbild** aus Google Photorealistic 3D Tiles (clientseitig mit
-  CesiumJS gerendert und als Frame erfasst; wo kein 3D vorhanden ist, Fallback auf
-  Satellit-Top-Down) → **Dachausrichtung + PV-Eignung**. Daraus wird ein
-  PV-Ertrag abgeleitet, der in die PV-Maßnahme des Simulators einfließt.
-
-Beide Bilder gehen in EINEN Vision-Call (`temperature: 0`). Cesium-Assets werden
-per `postinstall` (`scripts/copy-cesium.mjs`) nach `public/cesium` kopiert
-(gitignored, auf Vercel automatisch beim Install erzeugt).
+- **Straßenansicht (Street View)** → Fenster-zu-Wand-Anteil (WWR) per Vision-KI.
+  Verfeinert die Engine (Transmissionsverluste Wand/Fenster, Fenster-/Fassaden-ROI,
+  Beleuchtung) und speist den Überhitzungsindikator (WWR × Hitze-Klimarisiko).
+  Das Bild ist reproduzierbar (fixes `pano_id`/Heading/FOV), der WWR wird auf
+  5-%-Stufen gerundet.
+- **Google Solar API** (`lib/solar.ts`) → **PV-Potenzial datenbasiert** aus
+  Befliegungsdaten (nutzbare Dachfläche, Sonnenstunden, Jahresertrag). Daraus wird
+  ein PV-Ertrag je m² Bezugsfläche abgeleitet, der in die PV-Maßnahme des
+  Simulators einfließt. Kein Luftbild, keine LLM-Schätzung.
 
 Ablauf in `[app/api/facade/route.ts](app/api/facade/route.ts)`:
 
-1. **Metadata-Call (gratis)** an Street View → nur bei `status = OK` wird ein
+1. **Geocoding-Präzisions-Gate**: Ist die Adresse nur auf PLZ/Ort-Ebene auflösbar,
+   wird keine gebäudescharfe Analyse gefahren (Typologie-Defaults + Hinweis).
+2. **Solar API** (`buildingInsights:findClosest`, Distanz-Gate 50 m) → PV-Daten.
+3. **Metadata-Call (gratis)** an Street View → nur bei `status = OK` wird ein
    Bild geladen (spart alle Nicht-Treffer).
-2. **Heading** = Peilung von der echten Kameraposition auf das Gebäude
+4. **Heading** = Peilung von der echten Kameraposition auf das Gebäude
    (`bearing()` in `lib/geocode.ts`).
-3. **Bild (kostenpflichtig, 640×640)** laden.
-4. **Vision-Modell** (günstig, `FACADE_MODEL`, Default `claude-haiku-4-5`)
-   liefert WWR + Konfidenz + Bildqualität als JSON.
-5. **Quality-Gate**: nur `Konfidenz = hoch` und `Fassade = voll` werden als
-   Bildwert (`quelle = bild`) übernommen, sonst Fallback auf Typologie.
+5. **Bild (kostenpflichtig, 640×640)** laden.
+6. **Vision-Modell** (günstig, `FACADE_MODEL`, Default `claude-haiku-4-5`)
+   liefert WWR + Konfidenz + Bildqualität als JSON (`temperature: 0`).
+7. **Quality-Gate**: unbrauchbare Bilder (Konfidenz gering, Fassade kaum sichtbar,
+   schlechte Qualität) fallen auf den Typologie-Wert zurück.
 
 Kosten/Datenschutz: ~1–2 Cent pro Gebäude; in der Google Cloud Console ein
 Tageslimit (QPD) und Budget-Alerts setzen. Ohne `GOOGLE_MAPS_API_KEY` läuft die
@@ -142,9 +142,8 @@ scripts/crrem-extract.ts   CRREM-xlsx → JSON
 1. Repository zu GitHub pushen.
 2. In Vercel „New Project" → Repository importieren (Next.js wird erkannt).
 3. Environment-Variablen in Vercel setzen: `ANTHROPIC_API_KEY` (Pflicht),
-   optional `GOOGLE_MAPS_API_KEY` (Server: Street View + Satellit),
-   `NEXT_PUBLIC_GOOGLE_MAPS_KEY` (Browser: Photorealistic 3D Tiles – per
-   HTTP-Referrer + „Map Tiles API" einschränken!), sonst `ANTHROPIC_MODEL` /
+   optional `GOOGLE_MAPS_API_KEY` (Server: Street View Static + **Solar API** –
+   beide APIs im Google-Cloud-Projekt aktivieren), sonst `ANTHROPIC_MODEL` /
    `FACADE_MODEL`.
 4. Deploy. `lib/data/crrem-de.json` ist eingecheckt und muss nicht neu erzeugt
    werden.
@@ -160,5 +159,5 @@ ersetzen keine Energieberatung oder amtliche Bewertung. Insbesondere:
 - Wohngebäude-Ausweise enthalten meist keinen Haushaltsstrom (Stromlücke).
 - Die EU-Taxonomie-Prüfung ist eine vereinfachte Näherung (Top-15%/NZEB).
 - Das WWR-/Hüllenmodell (`lib/engine/envelope.ts`) ist eine WWR-sensitive
-  Heuristik (kein DIN V 18599). Street View liefert nur die Fassade; Dach/PV aus
-  echten Luftbildern ist bewusst nicht Teil dieses Umfangs.
+  Heuristik (kein DIN V 18599). Street View liefert nur die Fassade; die
+  PV-Aussage kommt datenbasiert aus der Google Solar API.

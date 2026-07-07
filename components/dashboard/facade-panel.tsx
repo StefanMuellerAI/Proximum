@@ -3,27 +3,24 @@
 /* eslint-disable @next/next/no-img-element */
 import { Loader2, ImageOff, Camera, Sun } from "lucide-react";
 import type { FacadeResult } from "@/lib/facade";
+import type { ValueSource } from "@/lib/schema";
 import { Badge } from "@/components/ui/badge";
+import { formatNumber } from "@/lib/utils";
 
 interface Props {
   facade: FacadeResult | null;
   status: "idle" | "loading" | "error" | "done";
   wwrPercent: number;
-  wwrSource: "bild" | "typologie" | "manuell";
+  wwrSource: ValueSource;
   pvYieldKwhPerM2: number;
-  pvSource: "bild" | "typologie" | "manuell";
+  pvSource: ValueSource;
 }
 
-function sourceBadge(source: "bild" | "typologie" | "manuell") {
+function sourceBadge(source: ValueSource) {
   if (source === "bild") return <Badge variant="success">aus Bild</Badge>;
+  if (source === "solar") return <Badge variant="success">Solar API</Badge>;
   if (source === "manuell") return <Badge variant="secondary">manuell</Badge>;
   return <Badge variant="outline">Typologie</Badge>;
-}
-
-function aerialLabel(s: FacadeResult["aerialSource"] | undefined): string {
-  if (s === "3d") return "Schrägluftbild (3D)";
-  if (s === "satellit") return "Satellit (Top-Down)";
-  return "kein Luftbild";
 }
 
 export function FacadePanel({
@@ -37,11 +34,13 @@ export function FacadePanel({
   if (status === "loading") {
     return (
       <div className="flex h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" /> Bilder werden geholt und
-        analysiert…
+        <Loader2 className="h-4 w-4 animate-spin" /> Fassade und Solarpotenzial
+        werden analysiert…
       </div>
     );
   }
+
+  const solar = facade?.solar ?? null;
 
   return (
     <div className="space-y-5">
@@ -50,10 +49,61 @@ export function FacadePanel({
           src={facade?.imageDataUrl ?? null}
           caption="Straßenansicht (Street View)"
         />
-        <ImageBox
-          src={facade?.aerialImageDataUrl ?? null}
-          caption={aerialLabel(facade?.aerialSource)}
-        />
+
+        {/* Solar-Daten (datenbasiert, Google Solar API) */}
+        <div className="flex h-full flex-col justify-center rounded-lg border bg-muted/40 p-4">
+          <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <Sun className="h-3.5 w-3.5" /> Solarpotenzial (Google Solar API)
+          </div>
+          {solar?.status === "ok" ? (
+            <dl className="space-y-1 text-sm">
+              {solar.yearlyEnergyDcKwh != null && (
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Max. Jahresertrag</dt>
+                  <dd className="font-medium">
+                    {formatNumber(solar.yearlyEnergyDcKwh, 0)} kWh/a
+                  </dd>
+                </div>
+              )}
+              {solar.roofAreaM2 != null && (
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Nutzbare Dachfläche</dt>
+                  <dd className="font-medium">
+                    {formatNumber(solar.roofAreaM2, 0)} m²
+                  </dd>
+                </div>
+              )}
+              {solar.maxSunshineHoursPerYear != null && (
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Sonnenstunden</dt>
+                  <dd className="font-medium">
+                    {formatNumber(solar.maxSunshineHoursPerYear, 0)} h/a
+                  </dd>
+                </div>
+              )}
+              {solar.eignung && (
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Eignung</dt>
+                  <dd className="font-medium">{solar.eignung}</dd>
+                </div>
+              )}
+              {solar.imageryDate && (
+                <div className="flex justify-between text-xs">
+                  <dt className="text-muted-foreground">Befliegung</dt>
+                  <dd className="text-muted-foreground">
+                    {solar.imageryDate}
+                    {solar.imageryQuality ? ` · ${solar.imageryQuality}` : ""}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {solar?.reason ?? "Keine Solar-Daten verfügbar"} – PV-Ertrag als
+              Typologiewert.
+            </p>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -81,7 +131,7 @@ export function FacadePanel({
         {/* PV */}
         <div className="rounded-lg border p-4">
           <div className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <Sun className="h-3.5 w-3.5" /> PV-Potenzial (Dach)
+            <Sun className="h-3.5 w-3.5" /> PV-Potenzial (bez. Bezugsfläche)
           </div>
           <div className="flex items-end gap-2">
             <span className="text-2xl font-bold">
@@ -91,17 +141,17 @@ export function FacadePanel({
             {sourceBadge(pvSource)}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            {facade?.pvEignung ? `Eignung ${facade.pvEignung}` : "Eignung —"}
-            {facade?.dachAusrichtung ? ` · Dach ${facade.dachAusrichtung}` : ""}
-            {facade?.pvHinweise ? ` · ${facade.pvHinweise}` : ""}
+            {pvSource === "solar"
+              ? "Datenbasiert aus Solar-API-Jahresertrag und Bezugsfläche."
+              : "Typologie-Annahme (keine Solar-Daten für dieses Gebäude)."}
           </div>
         </div>
       </div>
 
       <p className="text-[11px] text-muted-foreground">
         WWR steuert die Hüllen-Maßnahmen und den Überhitzungsindikator; das
-        PV-Potenzial fließt in die PV-Maßnahme des Simulators ein. Luftbild:
-        Google Photorealistic 3D Tiles (schräg) bzw. Satellit-Fallback.
+        PV-Potenzial fließt in die PV-Maßnahme des Simulators ein. Quellen:
+        Google Street View (Fassade) und Google Solar API (Dach, Befliegungsdaten).
       </p>
     </div>
   );
