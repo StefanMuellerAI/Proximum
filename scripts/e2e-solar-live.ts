@@ -27,8 +27,8 @@ for (const file of [".env.e2e.local", ".env.local"]) {
 
 const APP = "https://proximum.vercel.app";
 const CLERK = "https://api.clerk.com/v1";
-const ADDRESS = "Frankfurter Straße 94, 65239 Hochheim";
-const RUNS = 3;
+const ADDRESS = process.argv[2] || "Frankfurter Straße 94, 65239 Hochheim";
+const RUNS = Number(process.argv[3] || 3);
 
 const secret = process.env.CLERK_SECRET_KEY;
 if (!secret) throw new Error("CLERK_SECRET_KEY fehlt");
