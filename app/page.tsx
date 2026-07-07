@@ -1,3 +1,4 @@
+import Link from "next/link";
 import {
   Leaf,
   Gauge,
@@ -5,7 +6,13 @@ import {
   Euro,
   CloudRain,
   ShieldCheck,
+  LayoutGrid,
+  Users,
+  LogIn,
 } from "lucide-react";
+import { OrganizationSwitcher, SignInButton, UserButton } from "@clerk/nextjs";
+import { auth } from "@clerk/nextjs/server";
+import { requireAdmin } from "@/lib/auth";
 import { UploadDropzone } from "@/components/upload-dropzone";
 
 const features = [
@@ -41,7 +48,10 @@ const features = [
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  const { userId } = await auth();
+  const isAdmin = userId ? Boolean(await requireAdmin()) : false;
+
   return (
     <main className="min-h-screen">
       <header className="border-b bg-card/50">
@@ -52,9 +62,40 @@ export default function Home() {
             </div>
             <span className="text-lg font-bold tracking-tight">Proximum</span>
           </div>
-          <span className="text-sm text-muted-foreground">
-            ESG-Analyse für Immobilien
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="hidden text-sm text-muted-foreground sm:inline">
+              ESG-Analyse für Immobilien
+            </span>
+            {userId ? (
+              <>
+                <Link
+                  href="/portfolio"
+                  className="inline-flex h-9 items-center gap-2 rounded-md border border-input px-3 text-sm font-medium transition-colors hover:bg-accent"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                  Portfolio
+                </Link>
+                {isAdmin && (
+                  <Link
+                    href="/admin"
+                    className="inline-flex h-9 items-center gap-2 rounded-md border border-input px-3 text-sm font-medium transition-colors hover:bg-accent"
+                  >
+                    <Users className="h-4 w-4" />
+                    Admin
+                  </Link>
+                )}
+                <OrganizationSwitcher />
+                <UserButton />
+              </>
+            ) : (
+              <SignInButton mode="modal">
+                <button className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90">
+                  <LogIn className="h-4 w-4" />
+                  Anmelden
+                </button>
+              </SignInButton>
+            )}
+          </div>
         </div>
       </header>
 
@@ -73,7 +114,28 @@ export default function Home() {
       </section>
 
       <section className="mx-auto mt-10 max-w-2xl px-6">
-        <UploadDropzone />
+        {userId ? (
+          <UploadDropzone />
+        ) : (
+          <div className="flex flex-col items-center gap-4 rounded-2xl border-2 border-dashed p-12 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <LogIn className="h-8 w-8" />
+            </div>
+            <div>
+              <p className="text-lg font-semibold">Anmeldung erforderlich</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Melden Sie sich an, um Energieausweise hochzuladen und Ihr
+                Portfolio zu verwalten. Zugänge werden vom Administrator vergeben.
+              </p>
+            </div>
+            <SignInButton mode="modal">
+              <button className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90">
+                <LogIn className="h-4 w-4" />
+                Jetzt anmelden
+              </button>
+            </SignInButton>
+          </div>
+        )}
       </section>
 
       <section className="mx-auto mt-20 max-w-6xl px-6">
@@ -96,7 +158,7 @@ export default function Home() {
       <footer className="mx-auto mt-20 max-w-6xl px-6 pb-10">
         <p className="border-t pt-6 text-xs text-muted-foreground">
           Hinweis: Proximum nutzt dokumentierte deutsche Standard-Referenzwerte
-          (CO₂-Faktoren, Preise, BEG-Förderung, CRREM-Pfade V2.04) als
+          (CO₂-Faktoren, Preise, BEG-Förderung, CRREM-Pfade v2.05) als
           Näherungen. Die Ergebnisse dienen der Orientierung und ersetzen keine
           Energieberatung oder amtliche Bewertung.
         </p>

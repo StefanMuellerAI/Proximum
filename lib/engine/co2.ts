@@ -1,5 +1,5 @@
 import crremData from "@/lib/data/crrem-de.json";
-import { CARRIERS } from "@/lib/data/reference";
+import { CARRIERS, carrierCo2KgPerKwh } from "@/lib/data/reference";
 import type { EnergyState, Co2Result } from "@/lib/engine/types";
 import { BASE_YEAR, YEAR_START, YEAR_END } from "@/lib/engine/types";
 
@@ -17,7 +17,8 @@ export function gridEfForYear(year: number): number {
 
 /**
  * CO2-Intensitaet (kg CO2e/m²·a) fuer ein bestimmtes Jahr.
- * Fossile Traeger: konstanter Faktor. Strom-Traeger: zeitabhaengiger Netz-EF.
+ * Fossile Traeger: konstanter Faktor (ggf. netzspezifisch verfeinert).
+ * Strom-Traeger: zeitabhaengiger Netz-EF.
  */
 export function co2IntensityForYear(state: EnergyState, year: number): number {
   let sum = 0;
@@ -27,7 +28,7 @@ export function co2IntensityForYear(state: EnergyState, year: number): number {
     if (carrier.isElectric) {
       sum += energy * gridEfForYear(year);
     } else {
-      sum += energy * carrier.co2KgPerKwh;
+      sum += energy * carrierCo2KgPerKwh(share.carrier);
     }
   }
   return sum;

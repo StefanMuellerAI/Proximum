@@ -9,14 +9,23 @@
     "start": "next start",
     "lint": "next lint",
     "postinstall": "node scripts/copy-cesium.mjs",
-    "crrem:extract": "node --experimental-strip-types scripts/crrem-extract.ts"
+    "crrem:extract": "node --experimental-strip-types scripts/crrem-extract.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "test": "vitest run"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.7",
+    "@clerk/localizations": "^4.12.0",
+    "@clerk/nextjs": "^7.5.12",
+    "@neondatabase/serverless": "^1.1.0",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.0",
     "ai": "^7.0.14",
     "cesium": "^1.143.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.23.0",
     "next": "^16.2.10",
     "proj4": "^2.20.9",
@@ -32,9 +41,11 @@
     "@types/proj4": "^2.5.6",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "drizzle-kit": "^0.31.10",
     "fflate": "^0.8.3",
     "playwright-core": "^1.61.1",
     "tailwindcss": "^4.3.2",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^3.2.6"
   }
 }

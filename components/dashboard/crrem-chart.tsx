@@ -13,12 +13,19 @@ import {
 } from "recharts";
 import type { YearPoint } from "@/lib/engine/types";
 
+export interface RoadmapMarker {
+  year: number;
+  label: string;
+}
+
 interface Props {
   baseSeries: YearPoint[];
   scenarioSeries: YearPoint[];
   strandingBase: number | null;
   strandingScenario: number | null;
   hasMeasures: boolean;
+  /** Optionale Sanierungs-Roadmap: Massnahmen-Marker auf der Zeitachse. */
+  roadmap?: RoadmapMarker[];
 }
 
 export function CrremChart({
@@ -27,6 +34,7 @@ export function CrremChart({
   strandingBase,
   strandingScenario,
   hasMeasures,
+  roadmap,
 }: Props) {
   const data = baseSeries.map((p, i) => ({
     year: p.year,
@@ -117,6 +125,24 @@ export function CrremChart({
               }}
             />
           )}
+          {(roadmap ?? [])
+            .filter((m) => data.some((d) => d.year === m.year))
+            .map((m, i) => (
+              <ReferenceLine
+                key={`${m.year}-${m.label}`}
+                x={m.year}
+                stroke="#2563eb"
+                strokeDasharray="4 3"
+                label={{
+                  value: m.label,
+                  fontSize: 9,
+                  fill: "#2563eb",
+                  position: "insideTopLeft",
+                  angle: -90,
+                  dy: 12 + (i % 2) * 10,
+                }}
+              />
+            ))}
         </LineChart>
       </ResponsiveContainer>
     </div>

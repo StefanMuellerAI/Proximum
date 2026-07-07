@@ -1,0 +1,445 @@
+"use client";
+
+import * as React from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import {
+  Building2,
+  CalendarClock,
+  Euro,
+  FileUp,
+  Gauge,
+  Leaf,
+  Loader2,
+  ShieldCheck,
+  Trash2,
+  TrendingDown,
+  Users,
+  ArrowUpDown,
+} from "lucide-react";
+import { OrganizationSwitcher, UserButton, useAuth } from "@clerk/nextjs";
+import type { NormalizedBuilding } from "@/lib/schema";
+import {
+  aggregatePortfolio,
+  type PortfolioEntry,
+} from "@/lib/engine/portfolio";
+import { CRREM_TYPE_LABELS } from "@/lib/data/reference";
+import { formatEur, formatNumber } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { CrremChart } from "@/components/dashboard/crrem-chart";
+
+interface ApiBuilding {
+  id: string;
+  name: string | null;
+  address: string | null;
+  normalized: NormalizedBuilding;
+  selectedMeasures: string[];
+  createdAt: string;
+}
+
+type SortKey =
+  | "name"
+  | "areaM2"
+  | "co2"
+  | "cost"
+  | "stranding"
+  | "taxonomy";
+
+function strandingLabel(year: number | null): string {
+  return year ? String(year) : "nach 2050";
+}
+
+export function PortfolioClient({ isAdmin }: { isAdmin: boolean }) {
+  const router = useRouter();
+  const { orgId } = useAuth();
+  const [rows, setRows] = React.useState<ApiBuilding[] | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [sortKey, setSortKey] = React.useState<SortKey>("stranding");
+  const [sortAsc, setSortAsc] = React.useState(true);
+  const [busy, setBusy] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch("/api/buildings");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Fehler beim Laden.");
+      setRows(data.buildings);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Fehler beim Laden.");
+      setRows([]);
+    }
+  }, []);
+
+  // Neu laden, wenn die aktive Organisation (Mandant) wechselt.
+  React.useEffect(() => {
+    setRows(null);
+    load();
+  }, [load, orgId]);
+
+  const agg = React.useMemo(() => {
+    if (!rows) return null;
+    return aggregatePortfolio(
+      rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        address: r.address,
+        normalized: r.normalized,
+        selectedMeasures: r.selectedMeasures ?? [],
+        createdAt: r.createdAt,
+      })),
+    );
+  }, [rows]);
+
+  const sorted = React.useMemo(() => {
+    if (!agg) return [];
+    const dir = sortAsc ? 1 : -1;
+    const val = (e: PortfolioEntry): number | string => {
+      switch (sortKey) {
+        case "name":
+          return e.name.toLowerCase();
+        case "areaM2":
+          return e.areaM2 ?? -1;
+        case "co2":
+          return e.co2TonnesPerYear ?? e.co2IntensityKgM2a;
+        case "cost":
+          return e.costEurPerYear ?? -1;
+        case "stranding":
+          return e.strandingYear ?? 2051;
+        case "taxonomy":
+          return e.taxonomyAligned ? 1 : 0;
+      }
+    };
+    return [...agg.entries].sort((a, b) => {
+      const va = val(a);
+      const vb = val(b);
+      if (typeof va === "string" && typeof vb === "string")
+        return va.localeCompare(vb) * dir;
+      return ((va as number) - (vb as number)) * dir;
+    });
+  }, [agg, sortKey, sortAsc]);
+
+  function toggleSort(key: SortKey) {
+    if (key === sortKey) setSortAsc((v) => !v);
+    else {
+      setSortKey(key);
+      setSortAsc(true);
+    }
+  }
+
+  async function deleteBuilding(id: string, name: string) {
+    if (!window.confirm(`Gebäude „${name}" endgültig löschen?`)) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/buildings/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Löschen fehlgeschlagen.");
+      }
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Löschen fehlgeschlagen.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="min-h-screen pb-16">
+      <header className="sticky top-0 z-10 border-b bg-background/85 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-3">
+          <div className="flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Leaf className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="font-semibold leading-tight">Portfolio</div>
+              <div className="text-xs text-muted-foreground">
+                Alle Gebäude im Überblick
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/"
+              className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            >
+              <FileUp className="h-4 w-4" />
+              Neuer Ausweis
+            </Link>
+            {isAdmin && (
+              <Link
+                href="/admin"
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-input px-3 text-sm font-medium transition-colors hover:bg-accent"
+              >
+                <Users className="h-4 w-4" />
+                Admin
+              </Link>
+            )}
+            <OrganizationSwitcher />
+            <UserButton />
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-6xl space-y-6 px-6 pt-6">
+        {error && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {error}
+          </div>
+        )}
+
+        {rows === null || !agg ? (
+          <div className="flex items-center justify-center gap-2 py-24 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" /> Portfolio wird geladen…
+          </div>
+        ) : agg.count === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center gap-4 py-16 text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Building2 className="h-8 w-8" />
+              </div>
+              <div>
+                <p className="text-lg font-semibold">Noch keine Gebäude</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Laden Sie einen Energieausweis hoch, um Ihr Portfolio aufzubauen.
+                </p>
+              </div>
+              <Button onClick={() => router.push("/")}>
+                <FileUp className="h-4 w-4" />
+                Energieausweis hochladen
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            {/* Portfolio-KPIs */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              <Kpi
+                icon={<Building2 className="h-4 w-4" />}
+                title="Gebäude"
+                value={String(agg.count)}
+                sub={`${formatNumber(agg.totalAreaM2)} m² Gesamtfläche`}
+              />
+              <Kpi
+                icon={<Gauge className="h-4 w-4" />}
+                title="CO₂-Ausstoß"
+                value={`${formatNumber(agg.totalCo2TonnesPerYear, 1)} t/a`}
+                sub="Summe Ist-Zustand"
+              />
+              <Kpi
+                icon={<Euro className="h-4 w-4" />}
+                title="Energiekosten"
+                value={formatEur(agg.totalCostEurPerYear)}
+                sub={`+ ${formatEur(agg.totalLevyEurPerYear)} CO₂-Abgabe/a`}
+              />
+              <Kpi
+                icon={<CalendarClock className="h-4 w-4" />}
+                title="Frühestes Stranding"
+                value={strandingLabel(agg.earliestStrandingYear)}
+                sub={`Portfolio (gewichtet): ${strandingLabel(agg.portfolioStrandingYear)}`}
+              />
+              <Kpi
+                icon={<ShieldCheck className="h-4 w-4" />}
+                title="EU-Taxonomie"
+                value={`${agg.alignedCount} / ${agg.count}`}
+                sub="Gebäude konform (Näherung)"
+              />
+            </div>
+
+            {/* Gewichtete CRREM-Kurve */}
+            {agg.series.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingDown className="h-5 w-5 text-primary" />
+                    Portfolio-CRREM-Pfad (flächengewichtet)
+                  </CardTitle>
+                  <CardDescription>
+                    Flächengewichtete CO₂-Intensität aller Gebäude (
+                    {agg.weightedCount} von {agg.count} mit Bezugsfläche) gegen den
+                    gewichteten 1,5-°C-Zielpfad. Portfolio-Stranding:{" "}
+                    <strong>{strandingLabel(agg.portfolioStrandingYear)}</strong>.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <CrremChart
+                    baseSeries={agg.series}
+                    scenarioSeries={agg.series}
+                    strandingBase={agg.portfolioStrandingYear}
+                    strandingScenario={null}
+                    hasMeasures={false}
+                  />
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Gebaeude-Tabelle */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Gebäude</CardTitle>
+                <CardDescription>
+                  Klick auf eine Zeile öffnet die Detail-Analyse. Spalten sind
+                  sortierbar.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                        <Th label="Gebäude" onClick={() => toggleSort("name")} />
+                        <Th label="Nutzung" />
+                        <Th label="Fläche" onClick={() => toggleSort("areaM2")} />
+                        <Th label="CO₂" onClick={() => toggleSort("co2")} />
+                        <Th label="Kosten/a" onClick={() => toggleSort("cost")} />
+                        <Th
+                          label="Stranding"
+                          onClick={() => toggleSort("stranding")}
+                        />
+                        <Th
+                          label="Taxonomie"
+                          onClick={() => toggleSort("taxonomy")}
+                        />
+                        <th className="py-2 text-right" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sorted.map((e) => (
+                        <tr
+                          key={e.id}
+                          onClick={() => router.push(`/analyse?id=${e.id}`)}
+                          className="cursor-pointer border-b transition-colors last:border-0 hover:bg-accent/40"
+                        >
+                          <td className="py-2.5 pr-3">
+                            <div className="font-medium">{e.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {e.epcClass ? `Klasse ${e.epcClass}` : "—"}
+                              {e.measureCount > 0 &&
+                                ` · ${e.measureCount} Maßnahme(n) geplant`}
+                            </div>
+                          </td>
+                          <td className="py-2.5 pr-3 text-muted-foreground">
+                            {CRREM_TYPE_LABELS[e.crremType]}
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            {e.areaM2 != null
+                              ? `${formatNumber(e.areaM2)} m²`
+                              : "—"}
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            {e.co2TonnesPerYear != null
+                              ? `${formatNumber(e.co2TonnesPerYear, 1)} t/a`
+                              : `${formatNumber(e.co2IntensityKgM2a, 1)} kg/m²·a`}
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            {e.costEurPerYear != null
+                              ? formatEur(e.costEurPerYear)
+                              : "—"}
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            <Badge
+                              variant={
+                                e.strandingYear == null
+                                  ? "success"
+                                  : e.strandingYear <= 2030
+                                    ? "danger"
+                                    : "warning"
+                              }
+                            >
+                              {strandingLabel(e.strandingYear)}
+                            </Badge>
+                            {e.scenarioStrandingYear != null &&
+                              e.scenarioStrandingYear !== e.strandingYear && (
+                                <span className="ml-1.5 text-xs text-[var(--success)]">
+                                  → {strandingLabel(e.scenarioStrandingYear)}
+                                </span>
+                              )}
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            {e.taxonomyAligned ? (
+                              <Badge variant="success">konform</Badge>
+                            ) : (
+                              <Badge variant="outline">nicht konform</Badge>
+                            )}
+                          </td>
+                          <td className="py-2.5 text-right">
+                            <button
+                              type="button"
+                              title="Gebäude löschen"
+                              aria-label="Gebäude löschen"
+                              disabled={busy}
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                deleteBuilding(e.id, e.name);
+                              }}
+                              className="flex h-8 w-8 items-center justify-center rounded-md text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-40"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </div>
+    </main>
+  );
+}
+
+function Th({ label, onClick }: { label: string; onClick?: () => void }) {
+  return (
+    <th className="py-2 pr-3">
+      {onClick ? (
+        <button
+          type="button"
+          onClick={onClick}
+          className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-foreground"
+        >
+          {label}
+          <ArrowUpDown className="h-3 w-3" />
+        </button>
+      ) : (
+        label
+      )}
+    </th>
+  );
+}
+
+function Kpi({
+  icon,
+  title,
+  value,
+  sub,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  value: string;
+  sub: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          {icon}
+          {title}
+        </div>
+        <div className="text-2xl font-bold tracking-tight">{value}</div>
+        <div className="mt-1 text-xs text-muted-foreground">{sub}</div>
+      </CardContent>
+    </Card>
+  );
+}

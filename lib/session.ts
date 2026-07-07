@@ -1,5 +1,12 @@
 "use client";
 
+/**
+ * Zustandsloser Fallback-Speicher (sessionStorage).
+ *
+ * Wird nur noch genutzt, wenn keine Datenbank verfuegbar ist oder der
+ * Demo-Modus laeuft; der regulaere Flow persistiert Gebaeude ueber
+ * /api/buildings (Neon) und laedt sie per /analyse?id=.
+ */
 import type { EnergieausweisExtraction, NormalizedBuilding } from "@/lib/schema";
 
 export interface AnalysisPayload {

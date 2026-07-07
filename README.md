@@ -82,7 +82,8 @@ Cross-Session-Persistenz (z. B. Vercel KV) ist ein optionaler Ausbau.
 
 ## Datenquellen & Referenzdaten
 
-- **CRREM-Pfade**: `CRREM-Global-Pathways-V2.04.xlsx` → per Build-Skript
+- **CRREM-Pfade**: CRREM Library v2.05 (`CRREM-Global-Pathways-V2.05.xlsx` +
+  `emission-factors-v2.05.xlsx`, crrem.org/learn) → per Build-Skript
   `npm run crrem:extract` nach `lib/data/crrem-de.json` (nur DE-Pfade).
 - **Referenzwerte** (`lib/data/reference.ts`): CO₂-Faktoren (GEG/UBA),
   Energiepreise, CO₂-Preis-Pfad (BEHG/EU-ETS2), EU-Taxonomie-Schwellen,
@@ -113,6 +114,29 @@ lib/
 scripts/crrem-extract.ts   CRREM-xlsx → JSON
 ```
 
+## Betrieb: Sicherheit & Kosten
+
+- **Auth (Clerk):** Public Sign-up ist deaktiviert (Restricted Mode); User legt
+  der Admin unter `/admin` an. **Einmalige Dashboard-Einstellung empfohlen:**
+  Clerk-Dashboard → *Sessions* → *Customize session token* → Claims:
+  `{"role": "{{user.public_metadata.role}}"}`. Damit prüft `requireAdmin()`
+  die Rolle ohne Clerk-API-Roundtrip (schneller, schont das Rate-Limit);
+  ohne die Einstellung greift automatisch der Backend-API-Fallback.
+- **Mandanten:** Clerk Organizations sind aktiviert. Gebäude gehören der beim
+  Anlegen aktiven Organisation (`orgId`) oder – ohne aktive Organisation – dem
+  User persönlich (`orgId IS NULL`).
+- **Rate-Limits (Upstash Redis):** `/api/extract` 10/h, `/api/facade` 30/h,
+  `/api/risk` 60/h, Admin-Anlage 20/h je User (`lib/ratelimit.ts`). Fail-open
+  ohne `KV_REST_API_URL`/`KV_REST_API_TOKEN` (lokale Entwicklung).
+- **Vercel-Kosten:** In den Vercel-Projekteinstellungen *Spend Management*
+  (Budget + Benachrichtigung) aktivieren. `maxDuration` der Functions ist
+  begrenzt (60 s extract/facade, 30 s risk); die Gebäudeliste liefert bewusst
+  keine Base64-Bilder (schlanke Selects).
+- **Ausbaupfade (bewusst verschoben, lohnt ab ~100+ Gebäuden je Portfolio):**
+  Fassaden-/Luftbilder aus dem JSONB nach Vercel Blob auslagern;
+  Kern-KPIs (Stranding-Jahr, CO₂ t/a) beim Speichern denormalisiert in
+  Spalten ablegen, um portfolio-weite SQL-Auswertungen zu ermöglichen.
+
 ## Deployment (Vercel via GitHub)
 
 1. Repository zu GitHub pushen.
@@ -131,8 +155,8 @@ Alle Referenzwerte sind dokumentierte deutsche Standard-Näherungen und **keine
 amtlich verbindlichen Werte**. Die Ergebnisse dienen der Orientierung und
 ersetzen keine Energieberatung oder amtliche Bewertung. Insbesondere:
 
-- CRREM V2.04 kennt keine eigene Bildungs-Nutzungsart → Schulen/Kitas werden als
-  Büro (OFF) genähert.
+- CRREM (Global Pathways v2.05) kennt keine eigene Bildungs-Nutzungsart →
+  Schulen/Kitas werden als Büro (OFF) genähert.
 - Wohngebäude-Ausweise enthalten meist keinen Haushaltsstrom (Stromlücke).
 - Die EU-Taxonomie-Prüfung ist eine vereinfachte Näherung (Top-15%/NZEB).
 - Das WWR-/Hüllenmodell (`lib/engine/envelope.ts`) ist eine WWR-sensitive

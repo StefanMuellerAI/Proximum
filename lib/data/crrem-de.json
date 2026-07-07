@@ -1,14 +1,14 @@
 {
   "meta": {
-    "source": "CRREM-Global-Pathways-V2.04.xlsx",
+    "source": "CRREM Library: Global Pathways v2.05 + Emission Factors v2.05 (crrem.org)",
     "scenario": "1.5C",
     "country": "DE",
     "units": {
       "co2": "kg CO2e / m2 / a",
       "energy": "kWh / m2 / a",
-      "gridEf": "kg CO2 / kWh (Strom)"
+      "gridEf": "kg CO2e / kWh (Strom)"
     },
-    "generatedAt": "2026-07-03T19:32:39.289Z",
+    "generatedAt": "2026-07-05T14:38:48.541Z",
     "note": "Automatisch erzeugt via scripts/crrem-extract.ts. Nicht manuell editieren."
   },
   "co2": {

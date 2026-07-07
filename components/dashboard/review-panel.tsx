@@ -1,6 +1,7 @@
 "use client";
 
-import type { NormalizedBuilding } from "@/lib/schema";
+import { AlertTriangle, Info } from "lucide-react";
+import type { NormalizedBuilding, PlausibilityFlag } from "@/lib/schema";
 import {
   CARRIERS,
   CRREM_TYPE_LABELS,
@@ -17,15 +18,52 @@ function Field({
   label,
   children,
   hint,
+  flags,
 }: {
   label: string;
   children: React.ReactNode;
   hint?: string;
+  flags?: PlausibilityFlag[];
 }) {
+  const worst = flags?.some((f) => f.severity === "warnung")
+    ? "warnung"
+    : flags && flags.length > 0
+      ? "hinweis"
+      : null;
   return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+    <label
+      className={`flex flex-col gap-1 ${
+        worst
+          ? `-m-2 rounded-lg border p-2 ${
+              worst === "warnung"
+                ? "border-[var(--danger)]/50 bg-[var(--danger)]/5"
+                : "border-[var(--warning)]/50 bg-[var(--warning)]/8"
+            }`
+          : ""
+      }`}
+    >
+      <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+        {worst === "warnung" && (
+          <AlertTriangle className="h-3 w-3 text-[var(--danger)]" />
+        )}
+        {worst === "hinweis" && (
+          <Info className="h-3 w-3 text-[var(--warning)]" />
+        )}
+        {label}
+      </span>
       {children}
+      {flags?.map((f, i) => (
+        <span
+          key={i}
+          className={`text-[11px] ${
+            f.severity === "warnung"
+              ? "text-[var(--danger)]"
+              : "text-[var(--warning)]"
+          }`}
+        >
+          {f.message}
+        </span>
+      ))}
       {hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}
     </label>
   );
@@ -45,6 +83,11 @@ export function ReviewPanel({ building, onPatch }: Props) {
     return Number.isFinite(n) ? n : null;
   };
 
+  // Flags je Feld (aeltere gespeicherte Datensaetze haben ggf. keine flags)
+  const allFlags = building.flags ?? [];
+  const flagsFor = (field: PlausibilityFlag["field"]) =>
+    allFlags.filter((f) => f.field === field);
+
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <Field label="Adresse">
@@ -55,7 +98,11 @@ export function ReviewPanel({ building, onPatch }: Props) {
         />
       </Field>
 
-      <Field label="CRREM-Nutzungsart" hint={building.crremApproximated ? "näherungsweise zugeordnet" : undefined}>
+      <Field
+        label="CRREM-Nutzungsart"
+        hint={building.crremApproximated ? "näherungsweise zugeordnet" : undefined}
+        flags={flagsFor("crremType")}
+      >
         <select
           className={inputCls}
           value={building.crremType}
@@ -71,7 +118,7 @@ export function ReviewPanel({ building, onPatch }: Props) {
         </select>
       </Field>
 
-      <Field label="Bezugsfläche (m²)">
+      <Field label="Bezugsfläche (m²)" flags={flagsFor("bezugsflaecheM2")}>
         <input
           className={inputCls}
           type="number"
@@ -80,7 +127,7 @@ export function ReviewPanel({ building, onPatch }: Props) {
         />
       </Field>
 
-      <Field label="Endenergie Wärme (kWh/m²·a)">
+      <Field label="Endenergie Wärme (kWh/m²·a)" flags={flagsFor("heatKwhM2a")}>
         <input
           className={inputCls}
           type="number"
@@ -89,7 +136,10 @@ export function ReviewPanel({ building, onPatch }: Props) {
         />
       </Field>
 
-      <Field label="Endenergie Strom (kWh/m²·a)">
+      <Field
+        label="Endenergie Strom (kWh/m²·a)"
+        flags={flagsFor("electricityKwhM2a")}
+      >
         <input
           className={inputCls}
           type="number"
@@ -98,7 +148,7 @@ export function ReviewPanel({ building, onPatch }: Props) {
         />
       </Field>
 
-      <Field label="Haupt-Energieträger Wärme">
+      <Field label="Haupt-Energieträger Wärme" flags={flagsFor("heatCarrier")}>
         <select
           className={inputCls}
           value={building.heatCarrier}
@@ -117,7 +167,7 @@ export function ReviewPanel({ building, onPatch }: Props) {
         </select>
       </Field>
 
-      <Field label="Primärenergie (kWh/m²·a)">
+      <Field label="Primärenergie (kWh/m²·a)" flags={flagsFor("primaryKwhM2a")}>
         <input
           className={inputCls}
           type="number"
@@ -126,7 +176,11 @@ export function ReviewPanel({ building, onPatch }: Props) {
         />
       </Field>
 
-      <Field label="THG-Ausweiswert (kg CO₂e/m²·a)" hint="leer = aus Trägern berechnen">
+      <Field
+        label="THG-Ausweiswert (kg CO₂e/m²·a)"
+        hint="leer = aus Trägern berechnen"
+        flags={flagsFor("thgKgM2a")}
+      >
         <input
           className={inputCls}
           type="number"
@@ -135,7 +189,7 @@ export function ReviewPanel({ building, onPatch }: Props) {
         />
       </Field>
 
-      <Field label="Baujahr">
+      <Field label="Baujahr" flags={flagsFor("baujahr")}>
         <input
           className={inputCls}
           type="number"
@@ -144,7 +198,7 @@ export function ReviewPanel({ building, onPatch }: Props) {
         />
       </Field>
 
-      <Field label="Effizienzklasse (WG)">
+      <Field label="Effizienzklasse (WG)" flags={flagsFor("epcClass")}>
         <input
           className={inputCls}
           value={building.epcClass ?? ""}

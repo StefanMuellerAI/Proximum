@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateObject } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
+import { and, eq } from "drizzle-orm";
 import { geocode, bearing } from "@/lib/geocode";
 import {
   FACADE_IMAGE,
@@ -9,6 +10,11 @@ import {
   type FacadeResult,
 } from "@/lib/facade";
 import { PV_YIELD_BY_EIGNUNG } from "@/lib/data/reference";
+import { getDb, hasDatabase } from "@/lib/db";
+import { buildings } from "@/lib/db/schema";
+import { scopeFilter } from "@/lib/db/scope";
+import { getOwnerScope, requireUser } from "@/lib/auth";
+import { checkRateLimit, rateLimitResponse } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -68,6 +74,12 @@ function dataUrlToBytes(d: string): Uint8Array | null {
 }
 
 export async function POST(req: Request) {
+  const authedUserId = await requireUser();
+  if (!authedUserId)
+    return NextResponse.json({ error: "Nicht eingeloggt." }, { status: 401 });
+  const limit = await checkRateLimit("facade", authedUserId);
+  if (!limit.ok) return rateLimitResponse(limit);
+
   if (process.env.FACADE_ENABLED === "false")
     return NextResponse.json(fallback("Feature deaktiviert"));
   const key = process.env.GOOGLE_MAPS_API_KEY;
@@ -77,6 +89,7 @@ export async function POST(req: Request) {
   let lat: number | undefined;
   let lon: number | undefined;
   let aerialImageDataUrl: string | undefined;
+  let buildingId: string | undefined;
   try {
     const body = await req.json();
     if (typeof body?.address === "string") address = body.address.trim();
@@ -84,8 +97,30 @@ export async function POST(req: Request) {
     if (typeof body?.lon === "number") lon = body.lon;
     if (typeof body?.aerialImageDataUrl === "string")
       aerialImageDataUrl = body.aerialImageDataUrl;
+    if (typeof body?.buildingId === "string") buildingId = body.buildingId;
   } catch {
     return NextResponse.json({ error: "Ungültiger JSON-Body." }, { status: 400 });
+  }
+
+  // DB-Cache laden (Re-Fetch nur wenn leer oder pano_date geaendert)
+  const scope = buildingId && hasDatabase() ? await getOwnerScope() : null;
+  let cachedFacade: FacadeResult | null = null;
+  let cachedPanoDate: string | null = null;
+  if (buildingId && scope) {
+    try {
+      const [row] = await getDb()
+        .select({
+          facadeResult: buildings.facadeResult,
+          facadePanoDate: buildings.facadePanoDate,
+        })
+        .from(buildings)
+        .where(and(eq(buildings.id, buildingId), scopeFilter(scope)))
+        .limit(1);
+      cachedFacade = row?.facadeResult ?? null;
+      cachedPanoDate = row?.facadePanoDate ?? null;
+    } catch {
+      // Cache-Fehler ignorieren
+    }
   }
 
   if (lat == null || lon == null) {
@@ -121,6 +156,13 @@ export async function POST(req: Request) {
     if (meta.status === "OK" && meta.pano_id && meta.location) {
       panoId = meta.pano_id;
       panoDate = meta.date ?? null;
+
+      // Cache-Treffer: gleiches Panorama wie beim letzten Abruf -> kein
+      // erneuter (bezahlter) Bildabruf und keine erneute Vision-Analyse.
+      if (cachedFacade && cachedPanoDate && panoDate === cachedPanoDate) {
+        return NextResponse.json(cachedFacade);
+      }
+
       camLat = meta.location.lat;
       camLon = meta.location.lng;
       heading = Math.round((bearing(meta.location.lat, meta.location.lng, lat, lon) + 360) % 360);
@@ -138,6 +180,10 @@ export async function POST(req: Request) {
   } catch {
     streetReason = "Street-View-Abruf fehlgeschlagen";
   }
+
+  // Kein (neues) Street-View-Bild verfuegbar, aber Cache vorhanden -> Cache
+  // liefern statt Vision erneut zu bezahlen.
+  if (cachedFacade && !streetBytes) return NextResponse.json(cachedFacade);
 
   // --- Bild 2: Luftbild (Client-3D-Schrägbild oder Satellit-Fallback) ---
   let aerialBytes: Uint8Array | null = null;
@@ -235,6 +281,22 @@ export async function POST(req: Request) {
     pvYieldKwhPerM2,
     pvHinweise: vision.pv_hinweise ?? null,
   };
+
+  // Ergebnis im Gebaeude cachen (pano_date als Cache-Schluessel)
+  if (buildingId && scope) {
+    try {
+      await getDb()
+        .update(buildings)
+        .set({
+          facadeResult: result,
+          facadePanoDate: panoDate,
+          cachedAt: new Date(),
+        })
+        .where(and(eq(buildings.id, buildingId), scopeFilter(scope)));
+    } catch {
+      // Cache-Schreiben best effort
+    }
+  }
 
   return NextResponse.json(result);
 }

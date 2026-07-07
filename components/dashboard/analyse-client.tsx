@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import {
   ArrowLeft,
   FileUp,
@@ -16,8 +17,9 @@ import {
   ShieldCheck,
   ShieldAlert,
   Download,
+  LayoutGrid,
 } from "lucide-react";
-import type { NormalizedBuilding, CarrierShare } from "@/lib/schema";
+import type { FacadeResult } from "@/lib/facade";
 import {
   analyze,
   baseEnergyState,
@@ -25,11 +27,17 @@ import {
   summarizeInvestment,
   BASE_YEAR,
 } from "@/lib/engine";
-import { CARRIERS, CRREM_TYPE_LABELS, type CarrierKey } from "@/lib/data/reference";
-import { loadAnalysis, clearAnalysis } from "@/lib/session";
-import type { RiskResult } from "@/lib/risk";
-import type { FacadeResult } from "@/lib/facade";
+import { CRREM_TYPE_LABELS } from "@/lib/data/reference";
+import { clearAnalysis } from "@/lib/session";
 import { overheatingLevel } from "@/lib/overheating";
+import { useOrganization } from "@clerk/nextjs";
+import { useBuilding } from "@/hooks/use-building";
+import { useRisk } from "@/hooks/use-risk";
+import { useFacade } from "@/hooks/use-facade";
+import { useFootprint } from "@/hooks/use-footprint";
+import { useReportConfig } from "@/hooks/use-report-config";
+import { BuildingModel } from "@/components/dashboard/building-model";
+import { ReportConfigPanel } from "@/components/dashboard/report-config-panel";
 import { formatEur, formatNumber } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,6 +49,13 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { CrremChart } from "@/components/dashboard/crrem-chart";
+import { OptimizerPanel } from "@/components/dashboard/optimizer-panel";
+import type { RoadmapStep } from "@/lib/engine/optimizer";
+import {
+  computeDnshAdaptation,
+  estimateStockPercentile,
+  type DnshResult,
+} from "@/lib/engine/taxonomy";
 import { LevyChart } from "@/components/dashboard/levy-chart";
 import { RiskPanel } from "@/components/dashboard/risk-panel";
 import { ReviewPanel } from "@/components/dashboard/review-panel";
@@ -50,154 +65,76 @@ import { PrintReport } from "@/components/dashboard/print-report";
 import { AerialCapture } from "@/components/dashboard/aerial-capture";
 import { Home } from "lucide-react";
 
-function simplePerCarrier(
-  carrier: CarrierKey,
-  heat: number,
-  elec: number,
-): CarrierShare[] {
-  const c = CARRIERS[carrier];
-  const shares: CarrierShare[] = [
-    {
-      carrier,
-      label: c.label,
-      heatKwhM2a: c.isElectric ? 0 : heat,
-      electricityKwhM2a: c.isElectric ? heat : 0,
-    },
-  ];
-  if (elec > 0) {
-    shares.push({
-      carrier: "strom_netz",
-      label: CARRIERS.strom_netz.label,
-      heatKwhM2a: 0,
-      electricityKwhM2a: elec,
-    });
-  }
-  return shares;
-}
-
 function strandingLabel(year: number | null): string {
   return year ? String(year) : "nach 2050";
 }
 
 export function AnalyseClient() {
   const router = useRouter();
-  const [building, setBuilding] = React.useState<NormalizedBuilding | null>(null);
-  const [ready, setReady] = React.useState(false);
-  const [selected, setSelected] = React.useState<string[]>([]);
-  const [risk, setRisk] = React.useState<RiskResult | null>(null);
-  const [riskStatus, setRiskStatus] = React.useState<
-    "idle" | "loading" | "error" | "done"
-  >("idle");
-  const [riskError, setRiskError] = React.useState<string | null>(null);
-  const [facade, setFacade] = React.useState<FacadeResult | null>(null);
-  const [facadeStatus, setFacadeStatus] = React.useState<
-    "idle" | "loading" | "error" | "done"
-  >("idle");
+  const searchParams = useSearchParams();
+  const buildingId = searchParams.get("id");
   const [reviewOpen, setReviewOpen] = React.useState(false);
-  const [aerialResolved, setAerialResolved] = React.useState(false);
-  const aerialUrlRef = React.useRef<string | null>(null);
-  const facadeStartedRef = React.useRef(false);
+  const [roadmap, setRoadmap] = React.useState<RoadmapStep[]>([]);
+  const reportConfigState = useReportConfig();
+  const { organization } = useOrganization();
 
-  React.useEffect(() => {
-    const p = loadAnalysis();
-    if (!p) {
-      router.replace("/");
-      return;
-    }
-    setBuilding(p.normalized);
-    setReady(true);
-  }, [router]);
+  // Datenfluss: Gebaeude laden/persistieren, Risiko + Fassade anreichern.
+  const {
+    building,
+    ready,
+    selected,
+    cachedRisk,
+    cachedFacade,
+    cachedFootprint,
+    patchBuilding,
+    setBuilding,
+    toggleMeasure,
+    applyPackage,
+  } = useBuilding(buildingId);
 
   const address = building?.adresse ?? null;
-  React.useEffect(() => {
-    if (!address) return;
-    let cancelled = false;
-    setRiskStatus("loading");
-    setRiskError(null);
-    fetch("/api/risk", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ address }),
-    })
-      .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Fehler");
-        return d as RiskResult;
-      })
-      .then((d) => {
-        if (!cancelled) {
-          setRisk(d);
-          setRiskStatus("done");
-        }
-      })
-      .catch((e) => {
-        if (!cancelled) {
-          setRiskError(e instanceof Error ? e.message : "Fehler");
-          setRiskStatus("error");
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [address]);
+  const {
+    risk,
+    status: riskStatus,
+    error: riskError,
+  } = useRisk(address, buildingId, cachedRisk);
 
   // Koordinaten aus der Risiko-Geokodierung steuern die Schräg-Luftaufnahme.
   const coords = risk?.location
     ? { lat: risk.location.lat, lon: risk.location.lon }
     : null;
 
-  // Ohne Standort (Risiko-Fehler) direkt ohne 3D-Luftbild weiter.
-  React.useEffect(() => {
-    if (riskStatus === "error") setAerialResolved(true);
-  }, [riskStatus]);
-
-  const handleAerial = React.useCallback((url: string | null) => {
-    aerialUrlRef.current = url;
-    setAerialResolved(true);
-  }, []);
-
-  // Fassaden-/Dual-Bild-Analyse startet, sobald die Luftbild-Phase fertig ist.
-  React.useEffect(() => {
-    if (!address || !aerialResolved || facadeStartedRef.current) return;
-    facadeStartedRef.current = true;
-    let cancelled = false;
-    setFacadeStatus("loading");
-    fetch("/api/facade", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        address,
-        lat: coords?.lat,
-        lon: coords?.lon,
-        aerialImageDataUrl: aerialUrlRef.current ?? undefined,
-      }),
-    })
-      .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "Fehler");
-        return d as FacadeResult;
-      })
-      .then((d) => {
-        if (cancelled) return;
-        setFacade(d);
-        setFacadeStatus("done");
-        setBuilding((prev) => {
-          if (!prev) return prev;
-          let next = prev;
-          if (d.source === "bild" && d.wwrPercent != null && prev.wwrSource !== "manuell")
-            next = { ...next, wwrPercent: d.wwrPercent, wwrSource: "bild" };
-          if (d.pvYieldKwhPerM2 != null && prev.pvSource !== "manuell")
-            next = { ...next, pvYieldKwhPerM2: d.pvYieldKwhPerM2, pvSource: "bild" };
-          return next;
-        });
-      })
-      .catch(() => {
-        if (!cancelled) setFacadeStatus("error");
+  const applyFacadeToBuilding = React.useCallback(
+    (d: FacadeResult) => {
+      setBuilding((prev) => {
+        if (!prev) return prev;
+        let next = prev;
+        if (d.source === "bild" && d.wwrPercent != null && prev.wwrSource !== "manuell")
+          next = { ...next, wwrPercent: d.wwrPercent, wwrSource: "bild" };
+        if (d.pvYieldKwhPerM2 != null && prev.pvSource !== "manuell")
+          next = { ...next, pvYieldKwhPerM2: d.pvYieldKwhPerM2, pvSource: "bild" };
+        return next;
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [address, aerialResolved, coords?.lat, coords?.lon]);
+    },
+    [setBuilding],
+  );
+
+  // Minimalistische Gebaeudegrafik (OSM-Grundriss, gecacht je Gebaeude)
+  const footprint = useFootprint(coords, buildingId, cachedFootprint);
+
+  const {
+    facade,
+    status: facadeStatus,
+    aerialResolved,
+    handleAerial,
+  } = useFacade({
+    address,
+    coords,
+    buildingId,
+    cached: cachedFacade,
+    riskStatus,
+    onApplyToBuilding: applyFacadeToBuilding,
+  });
 
   const analytics = React.useMemo(() => {
     if (!building) return null;
@@ -229,31 +166,9 @@ export function AnalyseClient() {
     return { base, scen, invest, annualSavingsEur, paybackYears };
   }, [building, selected]);
 
-  function patchBuilding(patch: Partial<NormalizedBuilding>) {
-    setBuilding((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev, ...patch };
-      const energyTouched =
-        "heatKwhM2a" in patch ||
-        "electricityKwhM2a" in patch ||
-        "heatCarrier" in patch;
-      if (energyTouched) {
-        next.perCarrier = simplePerCarrier(
-          next.heatCarrier,
-          next.heatKwhM2a,
-          next.electricityKwhM2a,
-        );
-        next.totalKwhM2a = next.heatKwhM2a + next.electricityKwhM2a;
-      }
-      return next;
-    });
-  }
-
-  function toggleMeasure(id: string) {
-    setSelected((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
-  }
+  const handleRoadmapChange = React.useCallback((r: RoadmapStep[]) => {
+    setRoadmap(r);
+  }, []);
 
   function exportPdf() {
     const prev = document.title;
@@ -313,6 +228,15 @@ export function AnalyseClient() {
     : null;
   const overheat = overheatingLevel(building.wwrPercent, hitzeFuture);
 
+  // DNSH "Anpassung an den Klimawandel" aus dem Klimarisiko-Screening
+  const dnsh = computeDnshAdaptation(risk);
+
+  // Perzentil-Einordnung im nationalen Bestand (Naeherung, Predium-artig)
+  const stockPercentile = estimateStockPercentile(
+    building.primaryKwhM2a,
+    building.crremType,
+  );
+
   return (
     <main className="min-h-screen pb-16">
       {/* Schräg-Luftbild-Erfassung (offscreen, einmalig) */}
@@ -339,6 +263,10 @@ export function AnalyseClient() {
           risk={risk}
           facade={facade}
           overheat={overheat}
+          dnsh={dnsh}
+          footprint={footprint}
+          config={reportConfigState.config}
+          orgName={organization?.name ?? null}
         />
       </div>
 
@@ -349,7 +277,7 @@ export function AnalyseClient() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => router.push("/")}
+              onClick={() => router.push(buildingId ? "/portfolio" : "/")}
               aria-label="Zurück"
             >
               <ArrowLeft className="h-5 w-5" />
@@ -383,6 +311,14 @@ export function AnalyseClient() {
               <Download className="h-4 w-4" />
               Als PDF exportieren
             </Button>
+            <ReportConfigPanel state={reportConfigState} />
+            <Link
+              href="/portfolio"
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-input px-3 text-sm font-medium transition-colors hover:bg-accent"
+            >
+              <LayoutGrid className="h-4 w-4" />
+              Portfolio
+            </Link>
             <Button
               variant="outline"
               size="sm"
@@ -470,8 +406,25 @@ export function AnalyseClient() {
           <TaxonomyKpi
             aligned={base.taxonomy.aligned}
             detail={base.taxonomy.detail}
+            dnsh={dnsh}
+            stockPercentile={stockPercentile}
           />
         </div>
+
+        {/* Gebaeudegrafik (OSM-Grundriss, minimalistisch) */}
+        {footprint && footprint.buildings.some((b) => b.main) && (
+          <Card className="no-print overflow-hidden">
+            <CardContent className="relative bg-muted/30 p-0">
+              <BuildingModel
+                footprint={footprint}
+                className="mx-auto block h-72 w-full"
+              />
+              <span className="absolute bottom-2 right-3 text-[10px] text-muted-foreground">
+                Gebäude &amp; Umgebung · Grundriss: OpenStreetMap
+              </span>
+            </CardContent>
+          </Card>
+        )}
 
         {/* CRREM */}
         <Card className="print-avoid-break">
@@ -502,6 +455,30 @@ export function AnalyseClient() {
               strandingBase={base.crrem.strandingYear}
               strandingScenario={scen.crrem.strandingYear}
               hasMeasures={hasMeasures}
+              roadmap={roadmap.map((s) => ({ year: s.year, label: s.label }))}
+            />
+          </CardContent>
+        </Card>
+
+        {/* Sanierungs-Optimizer */}
+        <Card className="no-print">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Gauge className="h-5 w-5 text-primary" />
+              Sanierungs-Optimizer
+            </CardTitle>
+            <CardDescription>
+              Findet das beste Maßnahmenpaket für Ihr Ziel (vollständige
+              Kombinationssuche über den Katalog) und schlägt eine zeitliche
+              Roadmap vor – die Schritte erscheinen als Marker im CRREM-Chart.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <OptimizerPanel
+              building={building}
+              selected={selected}
+              onApplyPackage={applyPackage}
+              onRoadmapChange={handleRoadmapChange}
             />
           </CardContent>
         </Card>
@@ -567,6 +544,41 @@ export function AnalyseClient() {
                       ? formatEur(scen.cost.eurPerYear)
                       : `${formatNumber(scen.cost.eurPerM2Year, 1)} €/m²·a`}
                   </span>
+                </div>
+
+                {/* Endenergie-Kennzahlen: Absolutwert + Traeger-Split (Ist) */}
+                <div className="border-t pt-3 text-xs text-muted-foreground">
+                  <div className="flex items-center justify-between">
+                    <span>Endenergie (Ist)</span>
+                    <span className="font-medium text-foreground">
+                      {formatNumber(building.totalKwhM2a, 0)} kWh/m²·a
+                      {area != null &&
+                        ` · ${formatNumber(building.totalKwhM2a * area, 0)} kWh/a`}
+                    </span>
+                  </div>
+                  {building.primaryKwhM2a != null && (
+                    <div className="mt-1 flex items-center justify-between">
+                      <span>Primärenergie (Ist)</span>
+                      <span className="font-medium text-foreground">
+                        {formatNumber(building.primaryKwhM2a, 0)} kWh/m²·a
+                        {area != null &&
+                          ` · ${formatNumber(building.primaryKwhM2a * area, 0)} kWh/a`}
+                      </span>
+                    </div>
+                  )}
+                  {building.totalKwhM2a > 0 && building.perCarrier.length > 0 && (
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <span>Energieträger-Split</span>
+                      <span className="text-right font-medium text-foreground">
+                        {building.perCarrier
+                          .map(
+                            (s) =>
+                              `${formatNumber(((s.heatKwhM2a + s.electricityKwhM2a) / building.totalKwhM2a) * 100, 0)} % ${s.label}`,
+                          )
+                          .join(" · ")}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -659,6 +671,17 @@ export function AnalyseClient() {
               <span className="flex items-center gap-2">
                 <Info className="h-5 w-5 text-primary" />
                 Erkannte Kennwerte prüfen & korrigieren
+                {(building.flags ?? []).length > 0 && (
+                  <Badge
+                    variant={
+                      (building.flags ?? []).some((f) => f.severity === "warnung")
+                        ? "danger"
+                        : "warning"
+                    }
+                  >
+                    {(building.flags ?? []).length} auffällige Felder
+                  </Badge>
+                )}
               </span>
               {reviewOpen ? (
                 <ChevronUp className="h-5 w-5" />
@@ -705,7 +728,7 @@ export function AnalyseClient() {
               )}
               <p className="border-t pt-3 text-xs">
                 Berechnungen basieren auf dokumentierten Standard-Referenzwerten
-                (CRREM V2.04, GEG-CO₂-Faktoren, BEG-Förderung, BEHG/EU-ETS2). Sie
+                (CRREM Global Pathways v2.05, GEG-CO₂-Faktoren, BEG-Förderung, BEHG/EU-ETS2). Sie
                 dienen der Orientierung und ersetzen keine Energieberatung.
               </p>
             </CardContent>
@@ -757,9 +780,13 @@ function Kpi({
 function TaxonomyKpi({
   aligned,
   detail,
+  dnsh,
+  stockPercentile,
 }: {
   aligned: boolean;
   detail: string;
+  dnsh: DnshResult;
+  stockPercentile: number | null;
 }) {
   return (
     <Card>
@@ -772,13 +799,36 @@ function TaxonomyKpi({
           )}
           EU-Taxonomie
         </div>
-        <div>
+        <div className="flex flex-wrap gap-1">
           {aligned ? (
             <Badge variant="success">konform</Badge>
           ) : (
             <Badge variant="danger">nicht konform</Badge>
           )}
+          <Badge
+            variant={
+              dnsh.status === "konform"
+                ? "success"
+                : dnsh.status === "massnahmen_erforderlich"
+                  ? "warning"
+                  : "outline"
+            }
+            title={dnsh.detail}
+          >
+            DNSH:{" "}
+            {dnsh.status === "konform"
+              ? "erfüllt"
+              : dnsh.status === "massnahmen_erforderlich"
+                ? `${dnsh.findings.length} Maßnahme(n)`
+                : "offen"}
+          </Badge>
         </div>
+        {stockPercentile != null && (
+          <div className="mt-2 text-xs font-medium">
+            Gehört zu den besten ~{stockPercentile} % des nationalen Bestands
+            (Primärenergie, Näherung)
+          </div>
+        )}
         <div className="mt-2 text-xs text-muted-foreground">{detail}</div>
       </CardContent>
     </Card>

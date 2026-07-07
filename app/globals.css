@@ -103,10 +103,15 @@ body {
   display: none;
 }
 
+/* Fusszeile des Reports: am Bildschirm nie sichtbar. */
+.report-page-footer {
+  display: none;
+}
+
 @media print {
   @page {
     size: A4;
-    margin: 14mm;
+    margin: 14mm 14mm 20mm;
   }
 
   /* Interaktive/Bildschirm-Elemente im Druck ausblenden. */
@@ -128,6 +133,27 @@ body {
   /* Karten nicht ueber Seitenumbrueche zerreissen. */
   .print-avoid-break {
     break-inside: avoid;
+  }
+
+  /* Grosse Kapitel beginnen auf einer neuen Seite. */
+  .report-chapter {
+    break-before: page;
+  }
+
+  /* Wiederkehrende Fusszeile: position fixed wird in Chromium auf jeder
+     Druckseite wiederholt. */
+  .report-page-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    position: fixed;
+    bottom: -14mm;
+    left: 0;
+    right: 0;
+    font-size: 8.5px;
+    letter-spacing: 0.04em;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 4px;
   }
 
   /* Diagramm-Container im Druck fest dimensionieren, damit Recharts rendert. */

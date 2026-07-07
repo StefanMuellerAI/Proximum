@@ -38,6 +38,7 @@ export function analyze(
     building.primaryKwhM2a,
     building.epcClass,
     building.baujahr,
+    building.crremType,
   );
 
   return {

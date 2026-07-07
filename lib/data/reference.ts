@@ -3,8 +3,95 @@
  *
  * WICHTIG: Dies sind bewusst gewaehlte, quellenbasierte Naeherungswerte fuer den
  * MVP. Sie sind KEINE amtlich verbindlichen Werte und hier zentral anpassbar.
- * Alle Annahmen sind pro Wert kommentiert.
+ * Alle Annahmen sind pro Wert kommentiert; REFERENCE_INFO buendelt Quelle und
+ * Datenstand je Datenblock fuer den Report.
  */
+
+// ---------------------------------------------------------------------------
+// Quellen & Datenstand (wird im Report ausgewiesen)
+// ---------------------------------------------------------------------------
+
+export interface ReferenceSource {
+  /** Datenblock, z. B. "CO₂-Faktoren". */
+  topic: string;
+  source: string;
+  /** Datenstand (Jahr/Monat der zugrunde liegenden Daten). */
+  asOf: string;
+}
+
+export const REFERENCE_INFO: {
+  version: string;
+  sources: ReferenceSource[];
+} = {
+  version: "2025-06",
+  sources: [
+    {
+      topic: "CO₂-Faktoren Energieträger",
+      source: "GEG Anlage 9 / CO2KostAufG / UBA (gerundete Näherungen)",
+      asOf: "2024",
+    },
+    {
+      topic: "Energiepreise",
+      source: "BDEW/Statista-Durchschnittswerte (Nichtwohn-/Gewerbebezug)",
+      asOf: "2024/2025",
+    },
+    {
+      topic: "CO₂-Preispfad",
+      source: "BEHG-Festpreise bis 2026; ab 2027 EU-ETS2-Anstiegsszenario (Annahme)",
+      asOf: "2025",
+    },
+    {
+      topic: "CRREM-Pfade & Netz-Emissionsfaktoren",
+      source:
+        "CRREM Library: Global Pathways v2.05 + Emission Factors v2.05 (Deutschland, 1,5 °C)",
+      asOf: "v2.05 (30.04.2026)",
+    },
+    {
+      topic: "Sanierungskosten & BEG-Förderung",
+      source: "BEG EM/WG, dena, Verbraucherzentrale (Branchen-Richtwerte)",
+      asOf: "2024",
+    },
+    {
+      topic: "EU-Taxonomie-Schwellen",
+      source:
+        "Delegierte VO (EU) 2021/2139 Anhang I 7.7; Top-15%-Näherung (dena/BBSR)",
+      asOf: "2024-06",
+    },
+    {
+      topic: "Primärenergiefaktoren",
+      source: "GEG 2024 Anlage 4 (nicht erneuerbarer Anteil)",
+      asOf: "2024",
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// Optionale regionale Verfeinerung (leer = bundesweite Durchschnittswerte)
+// ---------------------------------------------------------------------------
+
+/**
+ * Regionale Energiepreise (EUR/kWh) als optionale Verfeinerung. Eintraege
+ * ueberschreiben CARRIERS[key].priceEurPerKwh, z. B. fuer projektspezifische
+ * Tarife oder regionale Durchschnitte.
+ */
+export const REGIONAL_ENERGY_PRICES: Partial<Record<CarrierKey, number>> = {};
+
+/**
+ * Netzspezifische Fernwaerme-Emissionsfaktoren (kg CO2/kWh) als optionale
+ * Verfeinerung. Eintraege ueberschreiben CARRIERS[key].co2KgPerKwh, z. B. mit
+ * dem zertifizierten Primaerenergie-/EF-Wert des lokalen Waermenetzes.
+ */
+export const NETWORK_HEAT_CO2_FACTORS: Partial<Record<CarrierKey, number>> = {};
+
+/** Effektiver Energiepreis (regionale Verfeinerung vor Bundesdurchschnitt). */
+export function carrierPriceEurPerKwh(key: CarrierKey): number {
+  return REGIONAL_ENERGY_PRICES[key] ?? CARRIERS[key].priceEurPerKwh;
+}
+
+/** Effektiver CO2-Faktor (netzspezifische Verfeinerung vor Standardwert). */
+export function carrierCo2KgPerKwh(key: CarrierKey): number {
+  return NETWORK_HEAT_CO2_FACTORS[key] ?? CARRIERS[key].co2KgPerKwh;
+}
 
 // ---------------------------------------------------------------------------
 // Energietraeger: CO2-Faktoren, Preise, Eigenschaften
@@ -210,6 +297,31 @@ export function matchCarrier(text: string | null | undefined): CarrierKey {
 }
 
 // ---------------------------------------------------------------------------
+// Primaerenergiefaktoren je Energietraeger
+// Quelle: GEG 2024 Anlage 4 (nicht erneuerbarer Anteil), gerundete Naeherungen.
+// Verwendet, um den Primaerenergiebedarf nach Sanierung naeherungsweise zu
+// skalieren (Taxonomie-Ziel im Optimizer).
+// ---------------------------------------------------------------------------
+
+export const PRIMARY_ENERGY_FACTORS: Record<CarrierKey, number> = {
+  erdgas: 1.1,
+  fluessiggas: 1.1,
+  heizoel: 1.1,
+  steinkohle: 1.1,
+  braunkohle: 1.2,
+  holz: 0.2,
+  fernwaerme_kwk: 0.6,
+  fernwaerme_fossil: 1.3,
+  nahwaerme: 1.1,
+  strom_netz: 1.8,
+  strom_gruen: 1.8,
+  waermepumpe: 1.8,
+  solarthermie: 0.0,
+  abwaerme: 0.2,
+  sonstige: 1.3,
+};
+
+// ---------------------------------------------------------------------------
 // CO2-Preis-Pfad (nationale CO2-Bepreisung BEHG, ab 2027 EU-ETS2-Annahme)
 // ---------------------------------------------------------------------------
 
@@ -240,26 +352,87 @@ export function co2PriceForYear(year: number): number {
 // ---------------------------------------------------------------------------
 
 /**
- * Vereinfachte Alignment-Pruefung (Delegierte VO 2021/2139, Anhang I, 7.7):
- *  - Gebaeude ab Baujahr 2021: NZEB (hier: PED-Schwelle streng).
+ * Vereinfachte Alignment-Pruefung (Delegierte VO (EU) 2021/2139, Anhang I,
+ * Abschnitt 7.7 "Erwerb von und Eigentum an Gebaeuden"):
+ *  - Gebaeude ab Baujahr 2021: Primaerenergiebedarf mind. 10 % unter NZEB
+ *    (Anhang I, 7.1) -> hier strengere PED-Schwelle je Nutzungsart.
  *  - Bestand vor 2021: EPC-Klasse A ODER "Top 15%" des nationalen Bestands.
- * "Top 15%" ist ohne nationale Verteilungsdaten nicht exakt bestimmbar und wird
- * hier durch eine Primaerenergie-Schwelle angenaehert (dokumentierte Annahme).
+ * "Top 15%" ist ohne amtliche Verteilungsdaten nicht exakt bestimmbar und wird
+ * hier durch nutzungsspezifische Primaerenergie-Schwellen angenaehert.
  */
 export const TAXONOMY = {
-  /** PED-Grenzwert (kWh/m2a) als Naeherung fuer "Top 15%" / NZEB-nah. */
+  /** Globaler Fallback-PED-Grenzwert (kWh/m2a), falls keine Nutzungsart bekannt. */
   pedThresholdKwhM2a: 75,
-  /** Strengere NZEB-Schwelle fuer Neubauten ab 2021. */
+  /** Globaler NZEB-Fallback fuer Neubauten ab 2021. */
   pedThresholdNzebKwhM2a: 55,
   /** EPC-Klassen, die direkt als aligned gelten (Wohngebaeude). */
   alignedEpcClasses: ["A+", "A"] as string[],
+  /** Datenstand / Quellenangabe fuer den Report. */
+  source:
+    "Delegierte VO (EU) 2021/2139 Anhang I 7.7; Top-15%-Näherung auf Basis dena-Gebäudereport 2024 und BBSR-Bestandsdaten (dokumentierte Schätzwerte)",
+  version: "2024-06",
 };
+
+/**
+ * "Top 15%"-Naeherung: Primaerenergie-Schwellen (kWh PE nicht erneuerbar/m2a)
+ * je CRREM-Nutzungsart fuer den deutschen Bestand (vor 2021).
+ * Quelle: Naeherung aus dena-Gebaeudereport 2024 (Wohnen) und
+ * BBSR/co2online-Benchmarks (Nichtwohnen); bewusst konservativ gerundet.
+ */
+export const TAXONOMY_PED_TOP15: Record<CrremType, number> = {
+  RSF: 70,
+  RMF: 65,
+  OFF: 90,
+  RHS: 130,
+  RSM: 140,
+  RWB: 110,
+  HOT: 130,
+  DWC: 120,
+  DWW: 90,
+  HEC: 160,
+  LEI: 120,
+};
+
+/**
+ * NZEB-Schwellen fuer Neubauten ab 2021 (Anhang I 7.1: mind. 10 % unter NZEB).
+ * Naeherung: 75 % der Top-15%-Schwelle (GEG-Neubaustandard liegt deutlich
+ * unter dem Bestands-Top-15%).
+ */
+export function taxonomyNzebThreshold(type: CrremType): number {
+  return Math.round(TAXONOMY_PED_TOP15[type] * 0.75);
+}
+
+/**
+ * Anker-Punkte der Primaerenergie-Verteilung des deutschen Bestands je
+ * Nutzungsart fuer die Perzentil-Naeherung ("gehoert zu den besten ~X %").
+ *
+ * Quelle/Herleitung (dokumentierte Naeherung, Stand 2024):
+ *  - p15 = Top-15%-Schwelle (TAXONOMY_PED_TOP15, dena/BBSR-Naeherung)
+ *  - p50 = Bestands-Median: ~1,8x der Top-15%-Schwelle (Verteilungsform aus
+ *    dena-Gebaeudereport 2024, Effizienzklassen-Verteilung Wohnen; fuer
+ *    Nichtwohnen analog aus BBSR/co2online-Benchmarks uebertragen)
+ *  - p85 = "schlechteste 15 %": ~3,2x der Top-15%-Schwelle
+ * Dazwischen wird stueckweise linear interpoliert; unterhalb des besten
+ * Ankers logarithmisch gegen 1 % gekappt.
+ */
+export const STOCK_PERCENTILE_ANCHORS: {
+  percentile: number;
+  factorOfTop15: number;
+}[] = [
+  { percentile: 1, factorOfTop15: 0.4 },
+  { percentile: 15, factorOfTop15: 1.0 },
+  { percentile: 30, factorOfTop15: 1.3 },
+  { percentile: 50, factorOfTop15: 1.8 },
+  { percentile: 70, factorOfTop15: 2.5 },
+  { percentile: 85, factorOfTop15: 3.2 },
+  { percentile: 99, factorOfTop15: 4.5 },
+];
 
 // ---------------------------------------------------------------------------
 // Mapping: deutsche Gebaeudekategorie -> CRREM-Nutzungsart-Code
 // ---------------------------------------------------------------------------
 
-/** CRREM V2.04 Nutzungsart-Codes (fuer DE verfuegbar). */
+/** CRREM Nutzungsart-Codes (fuer DE verfuegbar, Global Pathways v2.05). */
 export type CrremType =
   | "RSF" // Residential Single Family
   | "RMF" // Residential Multi Family

@@ -1,7 +1,12 @@
 "use client";
 
 import { Loader2, MapPin, AlertCircle } from "lucide-react";
-import { levelColor, type RiskResult, type RiskLevel } from "@/lib/risk";
+import {
+  hazardDeltas,
+  levelColor,
+  type RiskResult,
+  type RiskLevel,
+} from "@/lib/risk";
 
 interface Props {
   risk: RiskResult | null;
@@ -33,6 +38,7 @@ export function RiskPanel({ risk, status, error }: Props) {
   }
 
   const groupNames = Object.keys(risk.groups);
+  const deltas = hazardDeltas(risk.hazards);
 
   return (
     <div>
@@ -42,6 +48,38 @@ export function RiskPanel({ risk, status, error }: Props) {
           ? `${risk.location.strasseHausnummer}, ${risk.location.plz} ${risk.location.ort}`
           : risk.location.matchedLabel}
       </div>
+
+      {/* Kompakte Delta-Sicht: Gegenwart -> 2050 / 2070+ je Gefahr */}
+      {deltas.some((d) => d.present != null) && (
+        <div className="mb-4 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="py-1.5 pr-3">Gefahr</th>
+                <th className="py-1.5 pr-3">Heute</th>
+                <th className="py-1.5 pr-3">Bis 2050</th>
+                <th className="py-1.5 pr-3">Bis 2070+</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deltas.map((d) => (
+                <tr key={d.gruppe} className="border-b last:border-0">
+                  <td className="py-1.5 pr-3 font-medium">{d.gruppe}</td>
+                  <td className="py-1.5 pr-3">{d.present ?? "—"}</td>
+                  <td className="py-1.5 pr-3">
+                    {d.near ?? "—"}
+                    <DeltaBadge delta={d.nearDelta} />
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    {d.far ?? "—"}
+                    <DeltaBadge delta={d.farDelta} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="space-y-2.5">
         {groupNames.map((name) => {
@@ -83,6 +121,20 @@ export function RiskPanel({ risk, status, error }: Props) {
         relative Gefährdung; Zeitfenster in Klammern.
       </p>
     </div>
+  );
+}
+
+function DeltaBadge({ delta }: { delta: number | null }) {
+  if (delta == null || delta === 0) return null;
+  const worse = delta > 0;
+  return (
+    <span
+      className={`ml-1 text-xs font-semibold ${
+        worse ? "text-[var(--danger)]" : "text-[var(--success)]"
+      }`}
+    >
+      {worse ? `+${delta}` : delta}
+    </span>
   );
 }
 

@@ -1,4 +1,8 @@
-import { CARRIERS, co2PriceForYear } from "@/lib/data/reference";
+import {
+  CARRIERS,
+  carrierCo2KgPerKwh,
+  co2PriceForYear,
+} from "@/lib/data/reference";
 import type { EnergyState, Co2LevyResult } from "@/lib/engine/types";
 import { BASE_YEAR, YEAR_END } from "@/lib/engine/types";
 
@@ -16,7 +20,7 @@ export function computeCo2Levy(
     const carrier = CARRIERS[share.carrier];
     if (!carrier.behgRelevant) continue;
     const energy = share.heatKwhM2a + share.electricityKwhM2a;
-    fossilKgM2a += energy * carrier.co2KgPerKwh;
+    fossilKgM2a += energy * carrierCo2KgPerKwh(share.carrier);
   }
 
   const fossilTonnesPerYear =

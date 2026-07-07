@@ -76,6 +76,60 @@ export function levelFromValue(value: number): RiskLevel {
   return "sehr hoch";
 }
 
+/**
+ * Delta-Sicht je Gefahrengruppe (Predium-artig): Gegenwartswert vs. Zukunft
+ * "nah" (bis 2050) und "fern" (bis 2070+), inkl. Differenz zur Gegenwart.
+ * Bei mehreren Werten je Zeitfenster wird das Maximum verwendet.
+ */
+export interface HazardDelta {
+  gruppe: string;
+  category: RiskCategory;
+  /** Gegenwartswert (0-100) oder null, wenn nicht vorhanden. */
+  present: number | null;
+  /** Maximalwert bis 2050 (Timeframe "nah"). */
+  near: number | null;
+  nearDelta: number | null;
+  /** Maximalwert bis 2070+ (Timeframes "mittel"/"fern"). */
+  far: number | null;
+  farDelta: number | null;
+  level: RiskLevel;
+}
+
+export function hazardDeltas(hazards: Hazard[]): HazardDelta[] {
+  const byGroup = new Map<string, Hazard[]>();
+  for (const h of hazards) {
+    const list = byGroup.get(h.gruppe) ?? [];
+    list.push(h);
+    byGroup.set(h.gruppe, list);
+  }
+
+  const max = (items: Hazard[]): number | null =>
+    items.length === 0
+      ? null
+      : items.reduce((m, h) => Math.max(m, h.anzeigewert), 0);
+
+  const out: HazardDelta[] = [];
+  for (const [gruppe, items] of byGroup) {
+    const present = max(items.filter((h) => h.timeframe === "Gegenwart"));
+    const near = max(items.filter((h) => h.timeframe === "nah"));
+    const far = max(
+      items.filter((h) => h.timeframe === "mittel" || h.timeframe === "fern"),
+    );
+    const worst = Math.max(present ?? 0, near ?? 0, far ?? 0);
+    out.push({
+      gruppe,
+      category: categorize(gruppe),
+      present,
+      near,
+      nearDelta: present != null && near != null ? near - present : null,
+      far,
+      farDelta: present != null && far != null ? far - present : null,
+      level: levelFromValue(worst),
+    });
+  }
+  return out;
+}
+
 export function levelColor(level: RiskLevel): string {
   switch (level) {
     case "sehr gering":

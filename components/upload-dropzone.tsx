@@ -30,6 +30,26 @@ export function UploadDropzone() {
       const res = await fetch("/api/extract", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Extraktion fehlgeschlagen.");
+
+      // In der Datenbank persistieren; ohne DB (lokal, unkonfiguriert) faellt
+      // der Flow auf den bisherigen sessionStorage-Modus zurueck.
+      try {
+        const saveRes = await fetch("/api/buildings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            extraction: data.extraction,
+            normalized: data.normalized,
+          }),
+        });
+        if (saveRes.ok) {
+          const saved = await saveRes.json();
+          router.push(`/analyse?id=${saved.building.id}`);
+          return;
+        }
+      } catch {
+        // DB nicht erreichbar -> zustandsloser Fallback
+      }
       saveAnalysis({ extraction: data.extraction, normalized: data.normalized });
       router.push("/analyse");
     } catch (err) {
