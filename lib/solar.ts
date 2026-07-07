@@ -174,9 +174,12 @@ export async function fetchSolarInfo(
   lon: number,
   apiKey: string,
 ): Promise<SolarInfo> {
+  // requiredQuality=LOW ist die Mindestschwelle (akzeptiert LOW/MEDIUM/HIGH)
+  // und maximiert die Abdeckung; die tatsaechliche Datenqualitaet wird ueber
+  // imageryQuality transparent ausgewiesen.
   const url =
     `${SOLAR_URL}?location.latitude=${lat}&location.longitude=${lon}` +
-    `&requiredQuality=MEDIUM&key=${apiKey}`;
+    `&requiredQuality=LOW&key=${apiKey}`;
   let res: Response;
   try {
     res = await fetch(url);
