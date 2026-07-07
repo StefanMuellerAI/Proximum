@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { normalizeExtraction, type EnergieausweisExtraction } from "@/lib/schema";
 import { aggregatePortfolio } from "@/lib/engine/portfolio";
-import { analyzeBase } from "@/lib/engine";
+import { analyzeBase, analyzeScenario } from "@/lib/engine";
 
 function nwg(
   area: number | undefined,
@@ -58,6 +58,63 @@ describe("aggregatePortfolio", () => {
     const expected =
       (seriesA[0].gebaeude * 1000 + seriesB[0].gebaeude * 3000) / 4000;
     expect(agg.series[0].gebaeude).toBeCloseTo(expected, 1);
+  });
+
+  it("ohne Maßnahmen entspricht die Szenario-Kurve der Ist-Kurve", () => {
+    const a = normalizeExtraction(nwg(1000, 100, 30));
+    const agg = aggregatePortfolio([
+      { id: "a", name: "A", address: null, normalized: a, selectedMeasures: [], createdAt: "2026-01-01" },
+    ]);
+    expect(agg.hasScenario).toBe(false);
+    expect(agg.scenarioSeries).toEqual(agg.series);
+    expect(agg.scenarioStrandingYear).toBe(agg.portfolioStrandingYear);
+  });
+
+  it("mit Maßnahmen liegt die Szenario-Kurve unter der Ist-Kurve", () => {
+    const a = normalizeExtraction(nwg(1000, 100, 30));
+    const agg = aggregatePortfolio([
+      {
+        id: "a",
+        name: "A",
+        address: null,
+        normalized: a,
+        selectedMeasures: ["waermepumpe", "led"],
+        createdAt: "2026-01-01",
+      },
+    ]);
+    expect(agg.hasScenario).toBe(true);
+    expect(agg.scenarioSeries.length).toBe(agg.series.length);
+    expect(agg.scenarioSeries[0].gebaeude).toBeLessThan(
+      agg.series[0].gebaeude,
+    );
+    // Szenario-Stranding darf nicht frueher liegen als das Ist-Stranding
+    if (agg.portfolioStrandingYear != null && agg.scenarioStrandingYear != null)
+      expect(agg.scenarioStrandingYear).toBeGreaterThanOrEqual(
+        agg.portfolioStrandingYear,
+      );
+  });
+
+  it("Mischfall: Gebäude ohne Maßnahmen geht mit Ist-Kurve ins Szenario ein", () => {
+    const a = normalizeExtraction(nwg(1000, 100, 30));
+    const b = normalizeExtraction(nwg(3000, 200, 50));
+    const agg = aggregatePortfolio([
+      {
+        id: "a",
+        name: "A",
+        address: null,
+        normalized: a,
+        selectedMeasures: ["waermepumpe"],
+        createdAt: "2026-01-01",
+      },
+      { id: "b", name: "B", address: null, normalized: b, selectedMeasures: [], createdAt: "2026-01-02" },
+    ]);
+    expect(agg.hasScenario).toBe(true);
+
+    const scenA = analyzeScenario(a, ["waermepumpe"]).result.crrem.series;
+    const baseB = analyzeBase(b).crrem.series;
+    const expected =
+      (scenA[0].gebaeude * 1000 + baseB[0].gebaeude * 3000) / 4000;
+    expect(agg.scenarioSeries[0].gebaeude).toBeCloseTo(expected, 1);
   });
 
   it("Gebäude ohne Fläche fließen nicht in die gewichtete Kurve ein", () => {

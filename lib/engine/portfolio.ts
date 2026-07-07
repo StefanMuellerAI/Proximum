@@ -54,13 +54,24 @@ export interface PortfolioAggregation {
   series: YearPoint[];
   /** Erstes Jahr, in dem die gewichtete Intensitaet den gewichteten Pfad reisst. */
   portfolioStrandingYear: number | null;
+  /** Flaechengewichtete Kurve inkl. geplanter Massnahmen (Szenario). */
+  scenarioSeries: YearPoint[];
+  /** Portfolio-Stranding im Szenario mit geplanten Massnahmen. */
+  scenarioStrandingYear: number | null;
+  /** true, wenn mind. ein Gebaeude gespeicherte Massnahmen hat. */
+  hasScenario: boolean;
 }
 
 export function aggregatePortfolio(
   inputs: PortfolioBuildingInput[],
 ): PortfolioAggregation {
   const entries: PortfolioEntry[] = [];
-  const weighted: { areaM2: number; series: YearPoint[] }[] = [];
+  const weighted: {
+    areaM2: number;
+    series: YearPoint[];
+    /** Szenario-Kurve; ohne Massnahmen identisch zur Ist-Kurve. */
+    scenarioSeries: YearPoint[];
+  }[] = [];
 
   let totalAreaM2 = 0;
   let totalCo2 = 0;
@@ -68,6 +79,7 @@ export function aggregatePortfolio(
   let totalLevy = 0;
   let alignedCount = 0;
   let earliest: number | null = null;
+  let hasScenario = false;
 
   for (const input of inputs) {
     const base = analyzeBase(input.normalized);
@@ -75,6 +87,7 @@ export function aggregatePortfolio(
       input.selectedMeasures.length > 0
         ? analyzeScenario(input.normalized, input.selectedMeasures)
         : null;
+    if (scen) hasScenario = true;
 
     const areaM2 = input.normalized.bezugsflaecheM2;
     const entry: PortfolioEntry = {
@@ -110,28 +123,41 @@ export function aggregatePortfolio(
 
     if (areaM2 != null && areaM2 > 0) {
       totalAreaM2 += areaM2;
-      weighted.push({ areaM2, series: base.crrem.series });
+      weighted.push({
+        areaM2,
+        series: base.crrem.series,
+        // Gebaeude ohne Massnahmen gehen mit der Ist-Kurve ins Szenario ein.
+        scenarioSeries: scen?.result.crrem.series ?? base.crrem.series,
+      });
     }
   }
 
-  // Flaechengewichtete Kurve (alle Serien decken dieselben Jahre ab)
+  // Flaechengewichtete Kurven (alle Serien decken dieselben Jahre ab)
   const series: YearPoint[] = [];
+  const scenarioSeries: YearPoint[] = [];
   let portfolioStrandingYear: number | null = null;
+  let scenarioStrandingYear: number | null = null;
   if (weighted.length > 0) {
     const n = weighted[0].series.length;
     for (let i = 0; i < n; i++) {
       const year = weighted[0].series[i].year;
       let g = 0;
       let p = 0;
+      let s = 0;
       for (const w of weighted) {
         g += w.series[i].gebaeude * w.areaM2;
         p += w.series[i].pfad * w.areaM2;
+        s += w.scenarioSeries[i].gebaeude * w.areaM2;
       }
       const gebaeude = Number((g / totalAreaM2).toFixed(2));
       const pfad = Number((p / totalAreaM2).toFixed(2));
+      const szenario = Number((s / totalAreaM2).toFixed(2));
       series.push({ year, gebaeude, pfad });
+      scenarioSeries.push({ year, gebaeude: szenario, pfad });
       if (portfolioStrandingYear === null && gebaeude > pfad)
         portfolioStrandingYear = year;
+      if (scenarioStrandingYear === null && szenario > pfad)
+        scenarioStrandingYear = year;
     }
   }
 
@@ -147,5 +173,8 @@ export function aggregatePortfolio(
     earliestStrandingYear: earliest,
     series,
     portfolioStrandingYear,
+    scenarioSeries,
+    scenarioStrandingYear,
+    hasScenario,
   };
 }

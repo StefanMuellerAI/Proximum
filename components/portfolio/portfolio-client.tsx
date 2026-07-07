@@ -267,16 +267,26 @@ export function PortfolioClient({ isAdmin }: { isAdmin: boolean }) {
                     Flächengewichtete CO₂-Intensität aller Gebäude (
                     {agg.weightedCount} von {agg.count} mit Bezugsfläche) gegen den
                     gewichteten 1,5-°C-Zielpfad. Portfolio-Stranding:{" "}
-                    <strong>{strandingLabel(agg.portfolioStrandingYear)}</strong>.
+                    <strong>{strandingLabel(agg.portfolioStrandingYear)}</strong>
+                    {agg.hasScenario && (
+                      <>
+                        {" "}
+                        · mit geplanten Maßnahmen:{" "}
+                        <strong className="text-[var(--success)]">
+                          {strandingLabel(agg.scenarioStrandingYear)}
+                        </strong>
+                      </>
+                    )}
+                    .
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <CrremChart
                     baseSeries={agg.series}
-                    scenarioSeries={agg.series}
+                    scenarioSeries={agg.scenarioSeries}
                     strandingBase={agg.portfolioStrandingYear}
-                    strandingScenario={null}
-                    hasMeasures={false}
+                    strandingScenario={agg.scenarioStrandingYear}
+                    hasMeasures={agg.hasScenario}
                   />
                 </CardContent>
               </Card>
