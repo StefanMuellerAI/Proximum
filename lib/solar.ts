@@ -8,8 +8,13 @@ import { distanceMeters } from "@/lib/geocode";
 
 const SOLAR_URL = "https://solar.googleapis.com/v1/buildingInsights:findClosest";
 
-/** Max. Distanz zwischen angefragter Koordinate und Solar-Gebaeude. */
-export const SOLAR_MAX_DISTANCE_M = 50;
+/**
+ * Basis-Toleranz zwischen angefragter Koordinate und Solar-Gebaeude. Bei
+ * grossen Gebaeuden waechst die Schwelle mit der halben Diagonale der
+ * Gebaeude-BoundingBox (das Zentrum eines 6000-m²-Gebaeudes liegt leicht
+ * 50+ m vom Adresspunkt entfernt, ohne dass es das falsche Gebaeude ist).
+ */
+export const SOLAR_BASE_DISTANCE_M = 50;
 
 /** Obergrenze fuer den PV-Ertrag bezogen auf die Bezugsflaeche (kWh/m²·a). */
 export const PV_YIELD_CAP_KWH_M2A = 35;
@@ -75,8 +80,14 @@ export function pvYieldFromSolar(
 }
 
 /** Relevante Felder der buildingInsights-Antwort. */
+interface LatLng {
+  latitude: number;
+  longitude: number;
+}
+
 interface BuildingInsightsResponse {
-  center?: { latitude: number; longitude: number };
+  center?: LatLng;
+  boundingBox?: { sw: LatLng; ne: LatLng };
   imageryQuality?: string;
   imageryDate?: { year: number; month: number; day: number };
   solarPotential?: {
@@ -86,14 +97,30 @@ interface BuildingInsightsResponse {
   };
 }
 
-/** Prueft, ob das gefundene Solar-Gebaeude zur angefragten Koordinate passt. */
+/**
+ * Prueft, ob das gefundene Solar-Gebaeude zur angefragten Koordinate passt:
+ * Toleranz = Basis (50 m) + halbe Diagonale der Gebaeude-BoundingBox, damit
+ * grosse Gebaeude (Zentrum weit vom Adress-/Eingangs-Punkt) nicht faelschlich
+ * verworfen werden, kleine fremde Nachbargebaeude aber schon.
+ */
 export function withinSolarDistance(
   lat: number,
   lon: number,
-  centerLat: number,
-  centerLon: number,
+  center: LatLng,
+  boundingBox?: { sw: LatLng; ne: LatLng },
 ): boolean {
-  return distanceMeters(lat, lon, centerLat, centerLon) <= SOLAR_MAX_DISTANCE_M;
+  let tolerance = SOLAR_BASE_DISTANCE_M;
+  if (boundingBox) {
+    const halfDiagonal =
+      distanceMeters(
+        boundingBox.sw.latitude,
+        boundingBox.sw.longitude,
+        boundingBox.ne.latitude,
+        boundingBox.ne.longitude,
+      ) / 2;
+    tolerance += halfDiagonal;
+  }
+  return distanceMeters(lat, lon, center.latitude, center.longitude) <= tolerance;
 }
 
 /** Extrahiert die SolarInfo aus einer buildingInsights-Antwort (pur, testbar). */
@@ -103,12 +130,12 @@ export function mapBuildingInsights(
   lon: number,
 ): SolarInfo {
   const center = data.center;
-  if (
-    center &&
-    !withinSolarDistance(lat, lon, center.latitude, center.longitude)
-  ) {
+  if (center && !withinSolarDistance(lat, lon, center, data.boundingBox)) {
+    const dist = Math.round(
+      distanceMeters(lat, lon, center.latitude, center.longitude),
+    );
     return solarUnavailable(
-      "Nächstes Solar-Gebäude liegt zu weit von der Adresse entfernt",
+      `Nächstes Solar-Gebäude liegt zu weit von der Adresse entfernt (${dist} m)`,
     );
   }
   const pot = data.solarPotential;

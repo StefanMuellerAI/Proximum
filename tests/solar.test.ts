@@ -69,13 +69,35 @@ describe("mapBuildingInsights", () => {
 });
 
 describe("withinSolarDistance", () => {
-  it("akzeptiert nahe Gebäude und verwirft ferne", () => {
+  it("akzeptiert nahe Gebäude und verwirft ferne (ohne BoundingBox)", () => {
     expect(
-      withinSolarDistance(HOCHHEIM.lat, HOCHHEIM.lon, HOCHHEIM.lat + 0.0003, HOCHHEIM.lon),
+      withinSolarDistance(HOCHHEIM.lat, HOCHHEIM.lon, {
+        latitude: HOCHHEIM.lat + 0.0003,
+        longitude: HOCHHEIM.lon,
+      }),
     ).toBe(true); // ~33 m
     expect(
-      withinSolarDistance(HOCHHEIM.lat, HOCHHEIM.lon, HOCHHEIM.lat + 0.001, HOCHHEIM.lon),
+      withinSolarDistance(HOCHHEIM.lat, HOCHHEIM.lon, {
+        latitude: HOCHHEIM.lat + 0.001,
+        longitude: HOCHHEIM.lon,
+      }),
     ).toBe(false); // ~111 m
+  });
+
+  it("große Gebäude: Toleranz wächst mit der BoundingBox-Diagonale", () => {
+    // Zentrum ~111 m entfernt, aber Gebaeude ~180 m Diagonale -> akzeptiert
+    const boundingBox = {
+      sw: { latitude: HOCHHEIM.lat, longitude: HOCHHEIM.lon },
+      ne: { latitude: HOCHHEIM.lat + 0.0016, longitude: HOCHHEIM.lon + 0.0002 },
+    };
+    expect(
+      withinSolarDistance(
+        HOCHHEIM.lat,
+        HOCHHEIM.lon,
+        { latitude: HOCHHEIM.lat + 0.001, longitude: HOCHHEIM.lon },
+        boundingBox,
+      ),
+    ).toBe(true);
   });
 });
 
