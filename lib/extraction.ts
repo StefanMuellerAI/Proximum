@@ -7,6 +7,7 @@
  */
 import { generateText } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
+import { z } from "zod";
 import { energieausweisSchema } from "@/lib/schema";
 
 // JSON-Vorlage im Prompt statt grammatik-erzwungenem Tool-Schema.
@@ -121,4 +122,77 @@ export async function extractEnergieausweis(bytes: Uint8Array, filename?: string
   });
 
   return energieausweisSchema.safeParse(parseJsonLoose(text));
+}
+
+// ---------------------------------------------------------------------------
+// Rechnungs-Import (GAP-7): Energie-/Waermerechnungen -> Verbrauchsdaten.
+// Wiederverwendet die Vision-Pipeline (PLUS-1) statt Template-OCR.
+// ---------------------------------------------------------------------------
+
+const rechnungPositionSchema = z.object({
+  energietraeger: z.string().describe("Energieträger, z. B. Erdgas, Strom, Fernwärme"),
+  zeitraum_von: z.string().describe("Lieferzeitraum-Beginn (ISO-Datum)"),
+  zeitraum_bis: z.string().describe("Lieferzeitraum-Ende (ISO-Datum)"),
+  menge_kwh: z.number().describe("Gelieferte Menge in kWh (negativ bei Gutschrift/Storno)"),
+  kosten_eur: z.number().optional().describe("Kosten brutto in EUR (negativ bei Gutschrift)"),
+});
+
+export const energieRechnungSchema = z.object({
+  lieferant: z.string().optional(),
+  rechnungsnummer: z.string().optional(),
+  ist_storno_oder_gutschrift: z.boolean().optional(),
+  positionen: z.array(rechnungPositionSchema).default([]),
+  konfidenz: z.enum(["hoch", "mittel", "gering"]).optional(),
+});
+
+export type EnergieRechnungExtraction = z.infer<typeof energieRechnungSchema>;
+
+const RECHNUNG_TEMPLATE = `{
+  "lieferant": string,
+  "rechnungsnummer": string,
+  "ist_storno_oder_gutschrift": boolean,
+  "positionen": [
+    { "energietraeger": string, "zeitraum_von": "YYYY-MM-DD", "zeitraum_bis": "YYYY-MM-DD", "menge_kwh": number, "kosten_eur": number }
+  ],
+  "konfidenz": "hoch" | "mittel" | "gering"
+}`;
+
+const RECHNUNG_SYSTEM_PROMPT = `Du bist ein Experte für deutsche Energie-, Gas-, Strom-, Fernwärme- und Heizkostenabrechnungen.
+Extrahiere die Verbrauchspositionen aus dem PDF und antworte AUSSCHLIESSLICH mit einem gültigen JSON-Objekt
+gemäß der vorgegebenen Struktur – kein Markdown, keine Erklärungen.
+
+Regeln:
+- Je Energieträger und Lieferzeitraum EINE Position (kWh; m³ Gas in kWh umrechnen NUR wenn der Umrechnungsfaktor auf der Rechnung steht, sonst weglassen).
+- Storno-/Gutschriftbeträge als NEGATIVE Mengen/Kosten übernehmen und ist_storno_oder_gutschrift = true setzen.
+- Daten als ISO-Format (YYYY-MM-DD).
+- Felder ohne Wert weglassen; nichts raten.
+- konfidenz: ehrliche Gesamteinschätzung der Lesbarkeit/Eindeutigkeit.`;
+
+/** KI-Extraktion einer Energierechnung (PDF -> Verbrauchspositionen). */
+export async function extractEnergieRechnung(bytes: Uint8Array, filename?: string) {
+  const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
+  const { text } = await generateText({
+    model: anthropic(model),
+    system: RECHNUNG_SYSTEM_PROMPT,
+    temperature: 0,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `Extrahiere die Verbrauchspositionen dieser Energierechnung exakt nach folgender JSON-Struktur:\n\n${RECHNUNG_TEMPLATE}`,
+          },
+          {
+            type: "file",
+            data: bytes,
+            mediaType: "application/pdf",
+            filename: filename || "rechnung.pdf",
+          },
+        ],
+      },
+    ],
+  });
+
+  return energieRechnungSchema.safeParse(parseJsonLoose(text));
 }

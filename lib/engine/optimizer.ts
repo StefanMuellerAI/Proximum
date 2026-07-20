@@ -7,10 +7,7 @@
  * Orientierung, keine Fachplanung.
  */
 import type { NormalizedBuilding } from "@/lib/schema";
-import {
-  RENOVATION_MEASURES,
-  PRIMARY_ENERGY_FACTORS,
-} from "@/lib/data/reference";
+import { RENOVATION_MEASURES } from "@/lib/data/reference";
 import type { AnalysisResult, EnergyState } from "@/lib/engine/types";
 import { YEAR_END } from "@/lib/engine/types";
 import {
@@ -21,6 +18,12 @@ import {
   summarizeInvestment,
 } from "@/lib/engine";
 import { computeTaxonomy } from "@/lib/engine/taxonomy";
+import { estimatePrimaryAfter } from "@/lib/engine/primary-energy";
+import { analyzeThermal } from "@/lib/engine/thermal";
+import { effectivePvYieldKwhPerM2 } from "@/lib/engine/pv";
+import type { EnvelopeComponent } from "@/lib/data/reference";
+
+type EnvelopeReductions = Partial<Record<EnvelopeComponent, number>> | null;
 
 export type OptimizerGoal = "stranding" | "taxonomy" | "budget";
 export type OptimizerObjective = "minInvest" | "co2PerEuro" | "maxDelay";
@@ -80,34 +83,6 @@ export interface OptimizerResult {
   baseTaxonomyAligned: boolean;
 }
 
-/** Primaerenergie eines Energiezustands aus GEG-PE-Faktoren (kWh/m2a). */
-function primaryEnergyOf(state: EnergyState): number {
-  let pe = 0;
-  for (const s of state.perCarrier) {
-    pe +=
-      (s.heatKwhM2a + s.electricityKwhM2a) * PRIMARY_ENERGY_FACTORS[s.carrier];
-  }
-  return pe;
-}
-
-/**
- * Schaetzt den Primaerenergiewert nach Sanierung: der Ausweiswert wird mit dem
- * Verhaeltnis der (aus PE-Faktoren berechneten) Primaerenergie skaliert.
- * Ohne Ausweiswert wird direkt der berechnete Wert genutzt.
- */
-function estimatePrimaryAfter(
-  building: NormalizedBuilding,
-  baseState: EnergyState,
-  scenState: EnergyState,
-): number | null {
-  const peBase = primaryEnergyOf(baseState);
-  const peScen = primaryEnergyOf(scenState);
-  if (building.primaryKwhM2a != null && peBase > 0)
-    return building.primaryKwhM2a * (peScen / peBase);
-  if (peScen > 0 || peBase > 0) return peScen;
-  return null;
-}
-
 function defaultObjective(goal: OptimizerGoal): OptimizerObjective {
   return goal === "budget" ? "co2PerEuro" : "minInvest";
 }
@@ -134,6 +109,7 @@ function evaluateScenario(
   base: AnalysisResult,
   baseState: EnergyState,
   measureIds: string[],
+  envelopeReductions: EnvelopeReductions = null,
 ): {
   result: AnalysisResult;
   state: EnergyState;
@@ -145,7 +121,8 @@ function evaluateScenario(
     baseState,
     measureIds,
     building.wwrPercent,
-    building.pvYieldKwhPerM2,
+    effectivePvYieldKwhPerM2(building),
+    envelopeReductions,
   );
   const result = analyze(building, state, { useCertificateCo2: false });
   const investment = summarizeInvestment(measureIds, building.bezugsflaecheM2);
@@ -179,8 +156,15 @@ function evaluatePackage(
   base: AnalysisResult,
   baseState: EnergyState,
   measureIds: string[],
+  envelopeReductions: EnvelopeReductions = null,
 ): RankedPackage {
-  const scen = evaluateScenario(building, base, baseState, measureIds);
+  const scen = evaluateScenario(
+    building,
+    base,
+    baseState,
+    measureIds,
+    envelopeReductions,
+  );
 
   const baseStrandingYear = base.crrem.strandingYear;
   const strandingYear = scen.result.crrem.strandingYear;
@@ -204,7 +188,7 @@ function evaluatePackage(
   const estimatedPrimary =
     measureIds.length === 0
       ? building.primaryKwhM2a
-      : estimatePrimaryAfter(building, baseState, scen.state);
+      : estimatePrimaryAfter(building.primaryKwhM2a, baseState, scen.state);
   const taxonomy = computeTaxonomy(
     estimatedPrimary,
     // EPC-Klasse nur im Ist-Zustand anrechnen; nach Sanierung ist die neue
@@ -297,11 +281,16 @@ export function optimize(
   const baseState = baseEnergyState(building);
   const baseStrandingYear = base.crrem.strandingYear;
 
+  // Thermisches Modell EINMAL kalibrieren (GAP-2): bauteilscharfe
+  // Reduktionen fuer alle 511 Pakete, sonst Heuristik-Fallback.
+  const envelopeReductions =
+    analyzeThermal(building)?.envelopeReductions ?? null;
+
   const ids = RENOVATION_MEASURES.map((m) => m.id);
   const subsets = allSubsets(ids).filter((s) => s.length > 0);
 
   const evaluated = subsets.map((s) => {
-    const p = evaluatePackage(building, base, baseState, s);
+    const p = evaluatePackage(building, base, baseState, s, envelopeReductions);
     p.feasible = isFeasible(p, params.goal, targetYear, budgetEur);
     return p;
   });
@@ -354,6 +343,8 @@ export function buildRoadmap(
   // Basis einmal berechnen; Zwischenzustaende werden gegen sie bewertet.
   const base = analyzeBase(building);
   const baseState = baseEnergyState(building);
+  const envelopeReductions =
+    analyzeThermal(building)?.envelopeReductions ?? null;
 
   while (remaining.length > 0) {
     // Kein Stranding mehr -> restliche Massnahmen direkt im Folgejahr buendeln
@@ -364,11 +355,11 @@ export function buildRoadmap(
 
     // Naechste Massnahme: geringste Netto-Kosten je Tonne CO2-Einsparung
     // (marginal gegenueber dem aktuellen Zustand).
-    const currentScen = evaluateScenario(building, base, baseState, current);
+    const currentScen = evaluateScenario(building, base, baseState, current, envelopeReductions);
     let bestId: string | null = null;
     let bestScore = Number.POSITIVE_INFINITY;
     for (const id of remaining) {
-      const s = evaluateScenario(building, base, baseState, [...current, id]);
+      const s = evaluateScenario(building, base, baseState, [...current, id], envelopeReductions);
       const co2Delta =
         currentScen.result.co2.intensityKgM2a - s.result.co2.intensityKgM2a;
       const investDelta =
@@ -386,7 +377,7 @@ export function buildRoadmap(
     current.push(bestId);
     remaining.splice(remaining.indexOf(bestId), 1);
 
-    const after = evaluateScenario(building, base, baseState, current);
+    const after = evaluateScenario(building, base, baseState, current, envelopeReductions);
     const measure = RENOVATION_MEASURES.find((m) => m.id === bestId);
     const investStep =
       building.bezugsflaecheM2 != null && measure

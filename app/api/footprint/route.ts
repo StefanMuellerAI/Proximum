@@ -120,6 +120,7 @@ out geom;`;
         points,
         heightM: estimateHeight(el.tags, 9),
         main: false,
+        osmRef: el.id,
       });
     } else if (el.tags?.highway) {
       roadsOut.push({ points: el.geometry.map(toLocal) });

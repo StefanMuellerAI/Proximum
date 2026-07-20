@@ -2,6 +2,7 @@ import {
   RENOVATION_MEASURES,
   CARRIERS,
   type RenovationMeasure,
+  type EnvelopeComponent,
 } from "@/lib/data/reference";
 import type { CarrierShare } from "@/lib/schema";
 import type { EnergyState } from "@/lib/engine/types";
@@ -31,12 +32,18 @@ export function getMeasures(ids: string[]): RenovationMeasure[] {
  *
  * wwrPercent (optional): steuert die WWR-abhaengige Wirkung der Huellen-Massnahmen.
  * Ohne WWR wird der pauschale heatReductionPct-Fallback verwendet.
+ *
+ * envelopeReductions (optional, GAP-2): bauteilscharfe Waermeminderungen aus
+ * dem KALIBRIERTEN thermischen Modell (lib/engine/thermal). Wenn gesetzt,
+ * hat der Bottom-up-Wert Vorrang vor der WWR-Heuristik (Feature-Flag je
+ * Gebaeude: nur bei erfolgreicher Skalierung).
  */
 export function applyMeasures(
   base: EnergyState,
   ids: string[],
   wwrPercent?: number,
   pvYieldKwhPerM2?: number,
+  envelopeReductions?: Partial<Record<EnvelopeComponent, number>> | null,
 ): EnergyState {
   const measures = getMeasures(ids);
   let shares = cloneShares(base.perCarrier);
@@ -46,7 +53,13 @@ export function applyMeasures(
   let elecFactor = 1;
   const dayFactor = wwrPercent != null ? daylightFactor(wwrPercent) : 1;
   for (const m of measures) {
-    if (m.envelopeComponent && wwrPercent != null) {
+    const thermal = m.envelopeComponent
+      ? envelopeReductions?.[m.envelopeComponent]
+      : undefined;
+    if (thermal != null) {
+      // Bauteilscharfe Minderung aus dem kalibrierten thermischen Modell
+      heatFactor *= 1 - thermal;
+    } else if (m.envelopeComponent && wwrPercent != null) {
       // WWR-abhaengige Waermeminderung aus dem Transmissionsmodell
       heatFactor *= 1 - envelopeHeatReduction(m.envelopeComponent, wwrPercent);
     } else if (m.heatReductionPct) {

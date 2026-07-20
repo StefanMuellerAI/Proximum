@@ -135,10 +135,19 @@ export function UploadDropzone() {
           oder
           <div className="h-px w-16 bg-border" />
         </div>
-        <Button variant="outline" onClick={loadDemo} disabled={loading}>
-          <Sparkles className="h-4 w-4" />
-          Mit Beispiel-Ausweis testen (ohne Upload)
-        </Button>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <Button
+            variant="outline"
+            onClick={() => router.push("/anlegen")}
+            disabled={loading}
+          >
+            Mehrere Ausweise hochladen (geführte Anlage)
+          </Button>
+          <Button variant="outline" onClick={loadDemo} disabled={loading}>
+            <Sparkles className="h-4 w-4" />
+            Mit Beispiel-Ausweis testen (ohne Upload)
+          </Button>
+        </div>
       </div>
     </div>
   );

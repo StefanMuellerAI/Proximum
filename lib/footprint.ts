@@ -15,6 +15,18 @@ export interface FootprintBuilding {
   heightM: number;
   /** true = analysiertes Hauptgebaeude. */
   main: boolean;
+  /** Stabile OSM-Way-Referenz (fuer Selektion/Wiedererkennung, A6). */
+  osmRef?: number;
+  /**
+   * Nutzer-Selektion (A6): true = gehoert zum Ausweis-Gebaeude. Fehlt das
+   * Feld, gilt das main-Flag als Selektion (Alt-Daten bleiben gueltig).
+   */
+  selected?: boolean;
+}
+
+/** Effektive Selektion eines Polygons (Fallback: main-Flag). */
+export function isSelected(b: FootprintBuilding): boolean {
+  return b.selected ?? b.main;
 }
 
 export interface FootprintRoad {

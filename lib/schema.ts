@@ -16,6 +16,7 @@ import {
   type CarrierKey,
   type CrremType,
 } from "@/lib/data/reference";
+import { detectCountry } from "@/lib/engine/country";
 
 // ---------------------------------------------------------------------------
 // Zod-Schema (Claude-Zielstruktur)
@@ -44,6 +45,15 @@ export const energieausweisSchema = z.object({
   ausstellungsdatum: z.string().optional().describe("Ausstellungsdatum"),
   geg_stand: z.string().optional().describe("Angewendeter GEG-/EnEV-Stand, z. B. 'GEG 16.10.2023'"),
   anlass_ausstellung: z.string().optional().describe("Anlass (Neubau, Vermietung/Verkauf, Aushangpflicht, Modernisierung, Sonstiges)"),
+
+  land: z
+    .string()
+    .optional()
+    .describe("Land des Ausweises (DE/AT/FR/PL), falls erkennbar"),
+  heizwaermebedarf_kwh_m2a: z
+    .number()
+    .optional()
+    .describe("Heizwärmebedarf HWB in kWh/(m²·a) (österreichische Ausweise)"),
 
   gebaeudetyp: z
     .enum(["Wohngebäude", "Nichtwohngebäude"])
@@ -81,6 +91,20 @@ export const energieausweisSchema = z.object({
     .number()
     .optional()
     .describe("Primärenergiebedarf/-verbrauch (Ist) in kWh/(m²·a)"),
+  anforderungswert_pe_kwh_m2a: z
+    .number()
+    .optional()
+    .describe(
+      "GEG-/EnEV-Anforderungswert Primärenergie in kWh/(m²·a) (NWG-Bedarfsausweis, Vergleichsbalken)",
+    ),
+  vergleichswert_waerme_kwh_m2a: z
+    .number()
+    .optional()
+    .describe("Endenergie-Vergleichswert Wärme in kWh/(m²·a) (NWG-Verbrauchsausweis)"),
+  vergleichswert_strom_kwh_m2a: z
+    .number()
+    .optional()
+    .describe("Endenergie-Vergleichswert Strom in kWh/(m²·a) (NWG-Verbrauchsausweis)"),
   endenergie_gesamt_kwh_m2a: z
     .number()
     .optional()
@@ -166,6 +190,10 @@ export interface NormalizedBuilding {
   // Stammdaten
   registriernummer: string | null;
   adresse: string | null;
+  /** Land des Ausweises (GAP-10); fehlend = DE. */
+  country?: "DE" | "AT" | "FR" | "PL";
+  /** Heizwaermebedarf HWB (AT, Basis der OIB-Klasse); optional. */
+  hwbKwhM2a?: number | null;
   hauptnutzung: string | null;
   gebaeudetyp: "Wohngebäude" | "Nichtwohngebäude";
   ausweistyp: "Bedarfsausweis" | "Verbrauchsausweis";
@@ -181,6 +209,8 @@ export interface NormalizedBuilding {
   // Flaeche
   bezugsflaecheM2: number | null;
   flaechenart: string | null;
+  /** Wohnflaeche (WG, Basis der CO2KostAufG-Aufteilung); optional. */
+  wohnflaecheM2?: number | null;
 
   // Klassifizierung
   epcClass: string | null;
@@ -199,6 +229,12 @@ export interface NormalizedBuilding {
   electricityKwhM2a: number;
   totalKwhM2a: number;
   primaryKwhM2a: number | null;
+
+  // Fraunhofer-Referenzen (NWG, Effizienzklassen-Engine GAP-1); optional,
+  // damit Bestandsdaten ohne diese Felder gueltig bleiben.
+  peRefKwhM2a?: number | null;
+  vergleichswertWaerme?: number | null;
+  vergleichswertStrom?: number | null;
 
   // CO2 (kg CO₂e/m²·a) - null falls nicht im Ausweis (Engine rechnet)
   thgKgM2a: number | null;
@@ -256,6 +292,8 @@ const plausibilityFlagSchema = z.object({
 export const normalizedBuildingSchema: z.ZodType<NormalizedBuilding> = z.object({
   registriernummer: z.string().nullable(),
   adresse: z.string().max(500).nullable(),
+  country: z.enum(["DE", "AT", "FR", "PL"]).optional(),
+  hwbKwhM2a: z.number().min(0).max(1000).nullable().optional(),
   hauptnutzung: z.string().max(200).nullable(),
   gebaeudetyp: z.enum(["Wohngebäude", "Nichtwohngebäude"]),
   ausweistyp: z.enum(["Bedarfsausweis", "Verbrauchsausweis"]),
@@ -267,6 +305,7 @@ export const normalizedBuildingSchema: z.ZodType<NormalizedBuilding> = z.object(
   crremApproximated: z.boolean(),
   bezugsflaecheM2: z.number().nonnegative().nullable(),
   flaechenart: z.string().nullable(),
+  wohnflaecheM2: z.number().nonnegative().nullable().optional(),
   epcClass: z.string().max(10).nullable(),
   wwrPercent: z.number().min(0).max(100),
   wwrSource: sourceSchema,
@@ -276,6 +315,9 @@ export const normalizedBuildingSchema: z.ZodType<NormalizedBuilding> = z.object(
   electricityKwhM2a: z.number().min(0).max(10000),
   totalKwhM2a: z.number().min(0).max(20000),
   primaryKwhM2a: z.number().min(0).max(20000).nullable(),
+  peRefKwhM2a: z.number().min(0).max(20000).nullable().optional(),
+  vergleichswertWaerme: z.number().min(0).max(20000).nullable().optional(),
+  vergleichswertStrom: z.number().min(0).max(20000).nullable().optional(),
   thgKgM2a: z.number().min(0).max(10000).nullable(),
   heatCarrier: carrierKeySchema,
   heatCarrierLabel: z.string().max(100),
@@ -646,6 +688,8 @@ export function normalizeExtraction(
   return {
     registriernummer: raw.registriernummer ?? null,
     adresse: raw.adresse ?? null,
+    country: detectCountry({ land: raw.land ?? null, adresse: raw.adresse ?? null }),
+    hwbKwhM2a: raw.heizwaermebedarf_kwh_m2a ?? null,
     hauptnutzung: raw.hauptnutzung_gebaeudekategorie ?? null,
     gebaeudetyp: raw.gebaeudetyp,
     ausweistyp: raw.ausweistyp,
@@ -657,6 +701,7 @@ export function normalizeExtraction(
     crremApproximated: approximated,
     bezugsflaecheM2,
     flaechenart: raw.flaechenart ?? null,
+    wohnflaecheM2: raw.wohnflaeche_m2 ?? null,
     epcClass: raw.energieeffizienzklasse ?? null,
     wwrPercent: TYPICAL_WWR[crremType],
     wwrSource: "typologie",
@@ -666,6 +711,9 @@ export function normalizeExtraction(
     electricityKwhM2a,
     totalKwhM2a,
     primaryKwhM2a: raw.primaerenergie_kwh_m2a ?? null,
+    peRefKwhM2a: raw.anforderungswert_pe_kwh_m2a ?? null,
+    vergleichswertWaerme: raw.vergleichswert_waerme_kwh_m2a ?? null,
+    vergleichswertStrom: raw.vergleichswert_strom_kwh_m2a ?? null,
     thgKgM2a: raw.treibhausgasemissionen_kg_co2e_m2a ?? null,
     heatCarrier: heatCarrierKey,
     heatCarrierLabel: heatCarrier.label,

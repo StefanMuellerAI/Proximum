@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { normalizeExtraction } from "@/lib/schema";
 import { extractEnergieausweis } from "@/lib/extraction";
-import { requireUser } from "@/lib/auth";
+import { getOwnerScope } from "@/lib/auth";
+import { recordEvent } from "@/lib/db/events";
 import { checkRateLimit, rateLimitResponse } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
@@ -10,9 +11,10 @@ export const maxDuration = 60;
 const MAX_BYTES = 20 * 1024 * 1024;
 
 export async function POST(req: Request) {
-  const userId = await requireUser();
-  if (!userId)
+  const scope = await getOwnerScope();
+  if (!scope)
     return NextResponse.json({ error: "Nicht eingeloggt." }, { status: 401 });
+  const userId = scope.userId;
   const limit = await checkRateLimit("extract", userId);
   if (!limit.ok) return rateLimitResponse(limit);
 
@@ -74,6 +76,9 @@ export async function POST(req: Request) {
     }
 
     const normalized = normalizeExtraction(parsed.data);
+    await recordEvent("document_processed", scope, {
+      payload: { kind: "energieausweis", filename: file.name },
+    });
     return NextResponse.json({ extraction: parsed.data, normalized });
   } catch (err) {
     console.error("Extraction failed:", err);

@@ -29,3 +29,6 @@ next-env.d.ts
 
 # vercel
 .vercel
+
+# ip reference (Predium-Referenzmaterial – nie committen)
+/ip_reference/

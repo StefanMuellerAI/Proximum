@@ -1,4 +1,5 @@
 import { and, eq, isNull, type SQL } from "drizzle-orm";
+import type { PgColumn } from "drizzle-orm/pg-core";
 import { buildings } from "@/lib/db/schema";
 import type { OwnerScope } from "@/lib/auth";
 
@@ -11,4 +12,17 @@ export function scopeFilter(scope: OwnerScope): SQL {
   return scope.orgId
     ? eq(buildings.orgId, scope.orgId)
     : (and(eq(buildings.userId, scope.userId), isNull(buildings.orgId)) as SQL);
+}
+
+/**
+ * Generischer Scope-Filter fuer beliebige Tabellen mit userId/orgId-Spalten
+ * (economic_units, portfolios, ...). Gleiche Semantik wie scopeFilter.
+ */
+export function scopeFilterFor(
+  scope: OwnerScope,
+  cols: { userId: PgColumn; orgId: PgColumn },
+): SQL {
+  return scope.orgId
+    ? (eq(cols.orgId, scope.orgId) as SQL)
+    : (and(eq(cols.userId, scope.userId), isNull(cols.orgId)) as SQL);
 }

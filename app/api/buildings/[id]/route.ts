@@ -4,6 +4,8 @@ import { getDb, hasDatabase } from "@/lib/db";
 import { buildings, type BuildingRow } from "@/lib/db/schema";
 import { scopeFilter } from "@/lib/db/scope";
 import { getOwnerScope, type OwnerScope } from "@/lib/auth";
+import { recordAudit } from "@/lib/db/audit";
+import { enqueueJob } from "@/lib/jobs";
 import { normalizedBuildingSchema } from "@/lib/schema";
 import { RENOVATION_MEASURES } from "@/lib/data/reference";
 
@@ -113,6 +115,24 @@ export async function PATCH(
     .where(and(eq(buildings.id, id), scopeFilter(scope)))
     .returning();
 
+  // Recompute-DAG (2.13-3): Gebaeudezustand geaendert -> KPIs materialisieren
+  if (body.normalized !== undefined || body.selectedMeasures !== undefined)
+    await enqueueJob("materialize_kpis", { buildingId: id });
+
+  // Audit (2.13-6): nur die fachlich geaenderten Felder, nicht die Caches
+  await recordAudit(scope, "buildings", id, "update", {
+    before: {
+      normalized: row.normalized,
+      selectedMeasures: row.selectedMeasures,
+      name: row.name,
+    },
+    after: {
+      normalized: updated.normalized,
+      selectedMeasures: updated.selectedMeasures,
+      name: updated.name,
+    },
+  });
+
   return NextResponse.json({ building: updated });
 }
 
@@ -133,6 +153,10 @@ export async function DELETE(
   await getDb()
     .delete(buildings)
     .where(and(eq(buildings.id, id), scopeFilter(scope)));
+
+  await recordAudit(scope, "buildings", id, "delete", {
+    before: { name: row.name, address: row.address },
+  });
 
   return NextResponse.json({ ok: true });
 }

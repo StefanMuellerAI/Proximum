@@ -14,7 +14,16 @@ import {
   Legend,
 } from "recharts";
 import type { NormalizedBuilding } from "@/lib/schema";
-import type { AnalysisResult, InvestmentSummary } from "@/lib/engine";
+import type { AnalysisResult, InvestmentSummary, ValueCategory } from "@/lib/engine";
+import {
+  VALUE_CATEGORY_LABELS,
+  VALUE_CATEGORY_DISCLAIMERS,
+} from "@/lib/engine";
+import type {
+  AvoidanceCostResult,
+  DynamicPaybackResult,
+} from "@/lib/engine/finance";
+import type { ThermalAnalysis } from "@/lib/engine/thermal";
 import {
   CRREM_TYPE_LABELS,
   RENOVATION_MEASURES,
@@ -42,6 +51,11 @@ interface Props {
   invest: InvestmentSummary;
   annualSavingsEur: number | null;
   paybackYears: number | null;
+  finance?: {
+    avoidance: AvoidanceCostResult;
+    dynamic: DynamicPaybackResult;
+  } | null;
+  thermal?: ThermalAnalysis | null;
   risk: RiskResult | null;
   facade: FacadeResult | null;
   overheat: OverheatingResult;
@@ -322,6 +336,8 @@ export function PrintReport({
   invest,
   annualSavingsEur,
   paybackYears,
+  finance,
+  thermal,
   risk,
   facade,
   overheat,
@@ -495,6 +511,17 @@ export function PrintReport({
           <SectionHeading no={nextNo()}>Kennzahlen im Überblick</SectionHeading>
           <div style={{ display: "flex", gap: "14px" }}>
             <Kpi
+              label="Effizienzklasse"
+              value={building.epcClass ?? base.efficiencyClass?.label ?? "—"}
+              sub={
+                building.epcClass
+                  ? "aus dem Ausweis"
+                  : base.efficiencyClass
+                    ? "berechnet"
+                    : null
+              }
+            />
+            <Kpi
               label="CO₂e-Intensität"
               value={formatNumber(base.co2.intensityKgM2a, 1)}
               unit="kg/m²·a"
@@ -631,6 +658,9 @@ export function PrintReport({
               <span style={{ fontWeight: 700, color: CI.accentDark }}>
                 Nach Sanierung ({selectedMeasures.length} Maßnahmen):
               </span>{" "}
+              {scen.efficiencyClass
+                ? `Klasse ${scen.efficiencyClass.label} (berechnet) · `
+                : ""}
               {formatNumber(scen.co2.intensityKgM2a, 1)} kg CO₂e/m²·a · Misalignment{" "}
               {strandingLabel(scen.crrem.strandingYear)} ·{" "}
               {formatNumber(scen.energy.totalKwhM2a, 0)} kWh/m²·a
@@ -654,7 +684,7 @@ export function PrintReport({
             }
           >
             <div style={{ fontSize: "11px", marginBottom: "6px" }}>
-              Misalignment im Ist-Zustand:{" "}
+              Misalignment (CO₂-Pfad) im Ist-Zustand:{" "}
               <strong>{strandingLabel(base.crrem.strandingYear)}</strong>
               {hasMeasures && (
                 <>
@@ -662,6 +692,17 @@ export function PrintReport({
                   → nach Sanierung:{" "}
                   <strong style={{ color: CI.success }}>
                     {strandingLabel(scen.crrem.strandingYear)}
+                  </strong>
+                </>
+              )}
+              {" · "}Energiepfad (EUI):{" "}
+              <strong>{strandingLabel(base.crrem.energy.strandingYear)}</strong>
+              {hasMeasures && (
+                <>
+                  {" "}
+                  →{" "}
+                  <strong style={{ color: CI.success }}>
+                    {strandingLabel(scen.crrem.energy.strandingYear)}
                   </strong>
                 </>
               )}
@@ -756,6 +797,33 @@ export function PrintReport({
                 />
               </div>
             )}
+
+            {/* CO2KostAufG-Aufteilung Mieter/Vermieter (GAP-3) */}
+            <div
+              style={{
+                marginTop: "10px",
+                background: CI.panel,
+                borderRadius: "8px",
+                padding: "8px 12px",
+                fontSize: "11px",
+              }}
+            >
+              <span style={{ fontWeight: 700, color: CI.accentDark }}>
+                CO₂-Kostenaufteilung Mieter/Vermieter:
+              </span>{" "}
+              {formatNumber(base.co2Split.co2KgM2aRounded, 1)} kg CO₂/m²·a
+              {base.co2Split.stufe != null
+                ? ` (Stufe ${base.co2Split.stufe})`
+                : ""}{" "}
+              → Vermieter {Math.round(base.co2Split.vermieterAnteil * 100)} % /
+              Mieter {Math.round(base.co2Split.mieterAnteil * 100)} %
+              {showEur && base.co2Split.vermieterEurPerYear != null
+                ? ` · Vermieter ${formatEur(base.co2Split.vermieterEurPerYear)}/a, Mieter ${formatEur(base.co2Split.mieterEurPerYear!)}/a`
+                : ""}
+              <div style={{ marginTop: "2px", fontSize: "9.5px", color: CI.muted }}>
+                {base.co2Split.basis}
+              </div>
+            </div>
           </WithMargin>
         </section>
       )}
@@ -822,6 +890,37 @@ export function PrintReport({
                     : "—"
                 }
               />
+            </div>
+          )}
+
+          {/* Finanzielle KPIs (GAP-4): Vermeidungskosten + Preisdynamik */}
+          {showEur && finance && (
+            <div style={{ marginTop: "10px", display: "flex", gap: "14px" }}>
+              <Kpi
+                label="CO₂-Vermeidungskosten"
+                value={
+                  finance.avoidance.eurPerTonneLifetime != null
+                    ? `${formatNumber(finance.avoidance.eurPerTonneLifetime, 0)} €/t`
+                    : "N/A"
+                }
+                sub={`über ${formatNumber(finance.avoidance.lifetimeYears, 0)} Jahre Lebensdauer`}
+              />
+              <Kpi
+                label="Amortisation (dynamisch)"
+                value={
+                  finance.dynamic.paybackYears != null
+                    ? `${finance.dynamic.paybackYears} Jahre`
+                    : "—"
+                }
+                sub="Energiepreis +2 %/a + CO₂-Preispfad"
+              />
+              {finance.dynamic.paybackYearsPrebound != null && (
+                <Kpi
+                  label="Bandbreite (Prebound)"
+                  value={`${finance.dynamic.paybackYears ?? "—"}–${finance.dynamic.paybackYearsPrebound} Jahre`}
+                  sub="bedarfsbasierte Prognose, Baseline-Korridor"
+                />
+              )}
             </div>
           )}
         </section>
@@ -962,7 +1061,9 @@ export function PrintReport({
       {/* Klimarisiken */}
       {sections.klimarisiken && risk && (
         <section style={{ marginTop: "18px" }}>
-          <SectionHeading no={nextNo()}>Klimarisiken am Standort</SectionHeading>
+          <SectionHeading no={nextNo()}>
+            Klimarisiko-Screening am Standort
+          </SectionHeading>
           <WithMargin
             note={
               "Gefährdungsindizes (0–100) je Naturgefahr aus GIS-ImmoRisk. Die Deltas zeigen die Veränderung gegenüber heute für die Zeiträume bis 2050 bzw. 2070+."
@@ -1000,6 +1101,82 @@ export function PrintReport({
         </section>
       )}
 
+      {/* Methodik-Anhang (Bank-Use-Case, Abloeseplan 1.4): zitierfaehige
+          Angaben zu Standards, Pfaden und Annahmen */}
+      {sections.datenstand && (
+        <section style={{ marginTop: "18px" }} className="print-avoid-break">
+          <SectionHeading no={nextNo()}>Methodik</SectionHeading>
+          <Table
+            head={["Baustein", "Methode / Annahme"]}
+            rows={[
+              [
+                "CRREM",
+                `Version ${base.crrem.version} · Ziel 1,5 °C · Pathway All-GHG · RCP 4.5 · Basisjahr 2020 · Flächenreferenz ${base.crrem.areaReference} · Klimanormalisierung ${base.crrem.climateNormalized ? "HDD (verbrauchsbasiert)" : "keine (bedarfsbasiert: Ausweiswerte als Basisjahr-Messwerte)"}`,
+              ],
+              [
+                "Effizienzklasse",
+                base.efficiencyClass
+                  ? `${base.efficiencyClass.basis}`
+                  : building.epcClass
+                    ? `Klasse ${building.epcClass} aus dem Energieausweis übernommen`
+                    : "Keine Klasse berechenbar (fehlende Ausweisdaten oder Mischnutzung)",
+              ],
+              [
+                "CO₂-Abgabe",
+                "EBeV-Emissionsfaktoren (ohne Vorkette) × BEHG-Preispfad (2026: 65 €/t, ab 2027 +6,50 €/t p. a.); kein Aufschlag auf Strom",
+              ],
+              [
+                "CO₂-Kostenaufteilung",
+                base.co2Split.basis,
+              ],
+              [
+                "Emissionsfaktoren",
+                "Drei getrennte Faktorwelten: CRREM (Stranding), GEG Anlage 9 (CO₂e-Intensität), EBeV (Abgabe/Aufteilung) – nie vermischt",
+              ],
+              [
+                "Wirtschaftlichkeit",
+                "Energiepreis +2 %/a; CO₂-Vermeidungskosten mit Maßnahmen-Lebensdauer im Nenner; bedarfsbasierte Einsparungen als Bandbreite (Prebound-Korrektur)",
+              ],
+              [
+                "Thermisches Modell",
+                thermal
+                  ? thermal.calibration.success
+                    ? `EN ISO 13790 Heizperiodenbilanz, auf den Ausweiswert kalibriert (Abweichung ${(Math.abs(thermal.calibration.deviation) * 100).toFixed(3)} %); Hüllmaßnahmen bauteilscharf bewertet`
+                    : "Kalibrierung nicht konvergiert – Hüllmaßnahmen über dokumentierte Heuristik (Top-down) bewertet"
+                  : "Nicht anwendbar (fehlende Bezugsfläche/Wärmeenergie) – Top-down-Heuristik",
+              ],
+            ]}
+          />
+
+          {/* Kalibrierungs-Protokoll (2.13-11): Kompensationen sichtbar machen */}
+          {thermal && thermal.calibration.protocol.length > 0 && (
+            <div style={{ marginTop: "10px" }}>
+              <div
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  color: CI.muted,
+                  marginBottom: "4px",
+                }}
+              >
+                Kalibrierungs-Protokoll (thermische Skalierung)
+              </div>
+              <Table
+                head={["Parameter", "Von", "Auf", "Abweichung danach"]}
+                rows={thermal.calibration.protocol.map((s) => [
+                  s.label,
+                  formatNumber(s.from, 2),
+                  formatNumber(s.to, 2),
+                  `${(Math.abs(s.deviationAfter) * 100).toFixed(3)} %`,
+                ])}
+              />
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Datenstand / Quellen (Fussnoten) */}
       {sections.datenstand && (
         <section style={{ marginTop: "18px" }} className="print-avoid-break">
@@ -1018,11 +1195,57 @@ export function PrintReport({
         </section>
       )}
 
-      <p
+      {/* Wertkategorien-Disclaimer (2.13-7): automatisch aus den im Report
+          verwendeten Kategorien abgeleitet */}
+      <section
         style={{
           marginTop: "20px",
           borderTop: `1px solid ${CI.rule}`,
           paddingTop: "8px",
+        }}
+        className="print-avoid-break"
+      >
+        <div
+          style={{
+            fontSize: "9.5px",
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            color: CI.muted,
+            marginBottom: "4px",
+          }}
+        >
+          Wertkategorien &amp; Hinweise
+        </div>
+        {(() => {
+          const used = new Set<ValueCategory>(Object.values(base.categories));
+          if (hasMeasures)
+            for (const c of Object.values(scen.categories)) used.add(c);
+          if (sections.klimarisiken && risk) used.add("screening");
+          const order: ValueCategory[] = [
+            "messwert",
+            "berechnung",
+            "schaetzung",
+            "screening",
+            "bedarfsprognose",
+          ];
+          return order
+            .filter((c) => used.has(c))
+            .map((c) => (
+              <p
+                key={c}
+                style={{ margin: "0 0 3px", fontSize: "9px", color: CI.muted }}
+              >
+                <strong>{VALUE_CATEGORY_LABELS[c]}:</strong>{" "}
+                {VALUE_CATEGORY_DISCLAIMERS[c]}
+              </p>
+            ));
+        })()}
+      </section>
+
+      <p
+        style={{
+          marginTop: "10px",
           fontSize: "9px",
           color: CI.muted,
         }}

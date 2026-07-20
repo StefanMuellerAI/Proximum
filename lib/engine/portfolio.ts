@@ -98,7 +98,8 @@ export function aggregatePortfolio(
       crremType: input.normalized.crremType,
       hauptnutzung: input.normalized.hauptnutzung,
       areaM2,
-      epcClass: input.normalized.epcClass,
+      // Ausweisklasse bevorzugt; sonst berechnete Klasse (GAP-1)
+      epcClass: input.normalized.epcClass ?? base.efficiencyClass?.label ?? null,
       co2IntensityKgM2a: base.co2.intensityKgM2a,
       co2TonnesPerYear: base.co2.tonnesPerYear,
       costEurPerYear: base.cost.eurPerYear,

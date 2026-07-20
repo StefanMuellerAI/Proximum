@@ -1,6 +1,7 @@
 import {
   TAXONOMY,
   TAXONOMY_PED_TOP15,
+  TAXONOMY_PED_TOP30,
   taxonomyNzebThreshold,
   STOCK_PERCENTILE_ANCHORS,
   type CrremType,
@@ -62,6 +63,7 @@ export function computeTaxonomy(
   baujahr: number | null,
   crremType?: CrremType,
 ): TaxonomyResult {
+  // Bestandskriterium nur Baujahr <= 2020; Neubau ab 2021: >= 10 % unter NZEB
   const isNewBuild = baujahr != null && baujahr >= 2021;
   const threshold = crremType
     ? isNewBuild
@@ -70,6 +72,13 @@ export function computeTaxonomy(
     : isNewBuild
       ? TAXONOMY.pedThresholdNzebKwhM2a
       : TAXONOMY.pedThresholdKwhM2a;
+  // Top 30 % = "DNSH erfuellt" (nur Bestand, Spez. 2.12)
+  const top30Threshold =
+    crremType && !isNewBuild ? TAXONOMY_PED_TOP30[crremType] : undefined;
+  const top30Met =
+    top30Threshold != null && primaryKwhM2a != null
+      ? primaryKwhM2a <= top30Threshold
+      : undefined;
 
   if (epcClass && TAXONOMY.alignedEpcClasses.includes(epcClass.toUpperCase())) {
     return {
@@ -78,6 +87,8 @@ export function computeTaxonomy(
       detail: `Energieeffizienzklasse ${epcClass} zählt als taxonomiekonform (Anhang I 7.7).`,
       thresholdKwhM2a: threshold,
       primaryKwhM2a,
+      top30ThresholdKwhM2a: top30Threshold,
+      top30Met: top30Met ?? true,
     };
   }
 
@@ -89,6 +100,8 @@ export function computeTaxonomy(
         "Kein Primärenergiewert im Ausweis – Alignment nicht belegbar (Näherung).",
       thresholdKwhM2a: threshold,
       primaryKwhM2a,
+      top30ThresholdKwhM2a: top30Threshold,
+      top30Met,
     };
   }
 
@@ -96,16 +109,24 @@ export function computeTaxonomy(
   const criterion = isNewBuild
     ? "Primärenergie (NZEB −10 %, Neubau ab 2021)"
     : crremType
-      ? `Primärenergie (Top-15%-Näherung, ${crremType})`
-      : "Primärenergie (Top-15%-Näherung)";
+      ? `Primärenergie (Top 15 % „Wesentlicher Beitrag", ${crremType})`
+      : "Primärenergie (Top-15%-Schwelle)";
+  const top30Suffix =
+    top30Threshold != null && !aligned
+      ? top30Met
+        ? ` Top 30 % (≤ ${top30Threshold}) erreicht – „DNSH erfüllt".`
+        : ` Auch Top 30 % (≤ ${top30Threshold}) verfehlt.`
+      : "";
   return {
     aligned,
     criterion,
     detail: aligned
-      ? `Primärenergie ${Math.round(primaryKwhM2a)} ≤ ${threshold} kWh/(m²·a) – Schwelle (${TAXONOMY.version}) erfüllt.`
-      : `Primärenergie ${Math.round(primaryKwhM2a)} > ${threshold} kWh/(m²·a) – Schwelle (${TAXONOMY.version}) nicht erreicht.`,
+      ? `Primärenergie ${Math.round(primaryKwhM2a)} ≤ ${threshold} kWh/(m²·a) – Top-15%-Schwelle (${TAXONOMY.version}) erfüllt („Wesentlicher Beitrag").`
+      : `Primärenergie ${Math.round(primaryKwhM2a)} > ${threshold} kWh/(m²·a) – Top-15%-Schwelle (${TAXONOMY.version}) nicht erreicht.${top30Suffix}`,
     thresholdKwhM2a: threshold,
     primaryKwhM2a,
+    top30ThresholdKwhM2a: top30Threshold,
+    top30Met,
   };
 }
 

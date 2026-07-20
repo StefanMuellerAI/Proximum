@@ -27,7 +27,14 @@ import {
   summarizeInvestment,
   BASE_YEAR,
 } from "@/lib/engine";
-import { CRREM_TYPE_LABELS } from "@/lib/data/reference";
+import {
+  avoidanceCost,
+  dynamicPayback,
+  packageLifetimeYears,
+} from "@/lib/engine/finance";
+import { analyzeThermal } from "@/lib/engine/thermal";
+import { effectivePvYieldKwhPerM2 } from "@/lib/engine/pv";
+import { CRREM_TYPE_LABELS, RENOVATION_MEASURES } from "@/lib/data/reference";
 import { clearAnalysis } from "@/lib/session";
 import { overheatingLevel } from "@/lib/overheating";
 import { useOrganization } from "@clerk/nextjs";
@@ -61,6 +68,7 @@ import { RiskPanel } from "@/components/dashboard/risk-panel";
 import { ReviewPanel } from "@/components/dashboard/review-panel";
 import { Simulator } from "@/components/dashboard/simulator";
 import { FacadePanel } from "@/components/dashboard/facade-panel";
+import { ConsumptionPanel } from "@/components/dashboard/consumption-panel";
 import { PrintReport } from "@/components/dashboard/print-report";
 import { pvYieldFromSolar } from "@/lib/solar";
 import { Home } from "lucide-react";
@@ -138,11 +146,15 @@ export function AnalyseClient() {
   const analytics = React.useMemo(() => {
     if (!building) return null;
     const baseState = baseEnergyState(building);
+    // Thermisches Modell (GAP-2): einmal kalibrieren; bei Erfolg
+    // bauteilscharfe Huellwirkungen statt Pauschal-Heuristik.
+    const thermal = analyzeThermal(building);
     const scenState = applyMeasures(
       baseState,
       selected,
       building.wwrPercent,
-      building.pvYieldKwhPerM2,
+      effectivePvYieldKwhPerM2(building),
+      thermal?.envelopeReductions ?? null,
     );
     const base = analyze(building, baseState, { useCertificateCo2: false });
     const scen = analyze(building, scenState, { useCertificateCo2: false });
@@ -162,7 +174,29 @@ export function AnalyseClient() {
         paybackYears = invest.netInvestEur / annualSavingsEur;
       }
     }
-    return { base, scen, invest, annualSavingsEur, paybackYears };
+
+    // Finanzielle KPIs (GAP-4): Vermeidungskosten + dynamische Amortisation
+    const measures = RENOVATION_MEASURES.filter((m) => selected.includes(m.id));
+    const co2SavingTonnes =
+      base.co2.tonnesPerYear != null && scen.co2.tonnesPerYear != null
+        ? base.co2.tonnesPerYear - scen.co2.tonnesPerYear
+        : null;
+    const finance = {
+      avoidance: avoidanceCost(
+        invest.netInvestEur,
+        co2SavingTonnes,
+        packageLifetimeYears(measures),
+      ),
+      dynamic: dynamicPayback(
+        baseState,
+        scenState,
+        invest.netInvestEur,
+        building.bezugsflaecheM2,
+        { demandBased: building.ausweistyp === "Bedarfsausweis" },
+      ),
+    };
+
+    return { base, scen, invest, annualSavingsEur, paybackYears, finance, thermal };
   }, [building, selected]);
 
   const handleRoadmapChange = React.useCallback((r: RoadmapStep[]) => {
@@ -191,7 +225,8 @@ export function AnalyseClient() {
     );
   }
 
-  const { base, scen, invest, annualSavingsEur, paybackYears } = analytics;
+  const { base, scen, invest, annualSavingsEur, paybackYears, finance, thermal } =
+    analytics;
   const hasMeasures = selected.length > 0;
   const area = building.bezugsflaecheM2;
 
@@ -249,6 +284,8 @@ export function AnalyseClient() {
           invest={invest}
           annualSavingsEur={annualSavingsEur}
           paybackYears={paybackYears}
+          finance={finance}
+          thermal={thermal}
           risk={risk}
           facade={facade}
           overheat={overheat}
@@ -471,6 +508,9 @@ export function AnalyseClient() {
             />
           </CardContent>
         </Card>
+
+        {/* Verbrauchsdaten + Bedarf-vs.-Verbrauch (GAP-7, prominent, 1.4a) */}
+        <ConsumptionPanel buildingId={buildingId} />
 
         {/* CO2-Abgabe + Energiekosten */}
         <div className="grid gap-6 lg:grid-cols-2">

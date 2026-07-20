@@ -29,6 +29,69 @@
       "when": 1783264664137,
       "tag": "0003_pale_abomination",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784540370049,
+      "tag": "0004_careless_ares",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784540756304,
+      "tag": "0005_brown_mordo",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784541053137,
+      "tag": "0006_mighty_molten_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784542531944,
+      "tag": "0007_blushing_mysterio",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784542710241,
+      "tag": "0008_friendly_gamma_corps",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784542875628,
+      "tag": "0009_rapid_blob",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784544907373,
+      "tag": "0010_clumsy_red_skull",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784545027598,
+      "tag": "0011_chief_tiger_shark",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784545325215,
+      "tag": "0012_gifted_justin_hammer",
+      "breakpoints": true
     }
   ]
 }

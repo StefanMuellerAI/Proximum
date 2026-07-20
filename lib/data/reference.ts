@@ -37,8 +37,21 @@ export const REFERENCE_INFO: {
     },
     {
       topic: "CO₂-Preispfad",
-      source: "BEHG-Festpreise bis 2026; ab 2027 EU-ETS2-Anstiegsszenario (Annahme)",
+      source:
+        "Default: BEHG-Festpreise bis 2026, ab 2027 +6,50 €/t p. a. (Fortschreibung); alternativ EU-ETS2-Marktszenario (Annahme)",
       asOf: "2025",
+    },
+    {
+      topic: "EBeV-Emissionsfaktoren (CO₂-Abgabe, CO2KostAufG)",
+      source:
+        "EBeV 2030 Anlage 2 (ohne Vorkette); Fernwärme: Hilfswert Techem",
+      asOf: "2024",
+    },
+    {
+      topic: "CO₂-Kostenaufteilung",
+      source:
+        "CO2KostAufG (BGBl. I 2022, 2159): 10-Stufenmodell WG (§§ 5–7), NWG 50/50 (§ 8)",
+      asOf: "2023",
     },
     {
       topic: "CRREM-Pfade & Netz-Emissionsfaktoren",
@@ -322,15 +335,58 @@ export const PRIMARY_ENERGY_FACTORS: Record<CarrierKey, number> = {
 };
 
 // ---------------------------------------------------------------------------
-// CO2-Preis-Pfad (nationale CO2-Bepreisung BEHG, ab 2027 EU-ETS2-Annahme)
+// EBeV-Faktorwelt (CO2-Abgabe + CO2KostAufG, Spez. 2.5): OHNE Vorkette.
+// NICHT fuer CO2e-Intensitaeten oder CRREM verwenden (Faktor-Hygiene!).
 // ---------------------------------------------------------------------------
 
 /**
- * Preis je Tonne CO2 (EUR/t).
- * 2021-2026: gesetzliche BEHG-Festpreise / Auktionskorridor.
- * Ab 2027: EU-ETS2 -> Markt; hier konservatives Anstiegsszenario (Annahme).
+ * EBeV-2030-Emissionsfaktoren (kg CO2/kWh, ohne Vorkette).
+ * Quellen: EBeV 2030 Anlage 2 (Brennstoffe, aus t CO2/TJ umgerechnet);
+ * Fernwaerme: Hilfswert Techem 0,2553 (Spez. 2.3).
+ * Traeger ohne Eintrag unterliegen nicht der CO2-Bepreisung.
  */
-export const CO2_PRICE_EUR_PER_T: Record<number, number> = {
+export const EBEV_CO2_FACTORS: Partial<Record<CarrierKey, number>> = {
+  heizoel: 0.2664,
+  erdgas: 0.2016,
+  fluessiggas: 0.2387,
+  // Kohle: 93,5 bzw. 111 t CO2/TJ x 0,0036 TJ/MWh (EBeV/IPCC-Standardwerte)
+  steinkohle: 0.3366,
+  braunkohle: 0.3996,
+  // Fossile Fernwaerme unter EU-ETS: Hilfswert (Techem)
+  fernwaerme_fossil: 0.2553,
+  // Unbekannter fossiler Traeger: konservative Naeherung (dokumentiert)
+  sonstige: 0.25,
+};
+
+/** EBeV-Faktor eines Traegers; null = nicht CO2-bepreist. */
+export function ebevCo2KgPerKwh(key: CarrierKey): number | null {
+  if (!CARRIERS[key].behgRelevant) return null;
+  return EBEV_CO2_FACTORS[key] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// CO2-Preis-Pfade (Spez. 2.4)
+// ---------------------------------------------------------------------------
+
+export type Co2PricePath = "behg" | "ets2_szenario";
+
+/**
+ * DEFAULT (Predium-Paritaet, Abnahme 4.2): BEHG-Festpreise bis 2026,
+ * ab 2027 +6,50 EUR/t pro Jahr (Predium-Fortschreibung).
+ */
+export const CO2_PRICE_BEHG: Record<number, number> = (() => {
+  const path: Record<number, number> = {
+    2020: 25, 2021: 25, 2022: 30, 2023: 30, 2024: 45, 2025: 55, 2026: 65,
+  };
+  for (let y = 2027; y <= 2050; y++) path[y] = 65 + 6.5 * (y - 2026);
+  return path;
+})();
+
+/**
+ * Waehlbares Szenario: aggressiverer EU-ETS2-Marktpfad (Annahme).
+ * Muss im Report als Annahme ausgewiesen werden (Spez. 2.4).
+ */
+export const CO2_PRICE_ETS2_SZENARIO: Record<number, number> = {
   2020: 25, 2021: 25, 2022: 30, 2023: 30, 2024: 45, 2025: 55, 2026: 60,
   2027: 75, 2028: 90, 2029: 105, 2030: 120, 2031: 130, 2032: 140, 2033: 150,
   2034: 160, 2035: 170, 2036: 180, 2037: 190, 2038: 200, 2039: 210, 2040: 220,
@@ -338,13 +394,20 @@ export const CO2_PRICE_EUR_PER_T: Record<number, number> = {
   2048: 260, 2049: 265, 2050: 270,
 };
 
-export function co2PriceForYear(year: number): number {
-  if (CO2_PRICE_EUR_PER_T[year] !== undefined) return CO2_PRICE_EUR_PER_T[year];
-  const years = Object.keys(CO2_PRICE_EUR_PER_T).map(Number);
+/** @deprecated Alias auf den ETS2-Szenario-Pfad (Altnutzung). */
+export const CO2_PRICE_EUR_PER_T = CO2_PRICE_ETS2_SZENARIO;
+
+export function co2PriceForYear(
+  year: number,
+  path: Co2PricePath = "behg",
+): number {
+  const table = path === "behg" ? CO2_PRICE_BEHG : CO2_PRICE_ETS2_SZENARIO;
+  if (table[year] !== undefined) return table[year];
+  const years = Object.keys(table).map(Number);
   const min = Math.min(...years);
   const max = Math.max(...years);
-  if (year < min) return CO2_PRICE_EUR_PER_T[min];
-  return CO2_PRICE_EUR_PER_T[max];
+  if (year < min) return table[min];
+  return table[max];
 }
 
 // ---------------------------------------------------------------------------
@@ -369,29 +432,53 @@ export const TAXONOMY = {
   alignedEpcClasses: ["A+", "A"] as string[],
   /** Datenstand / Quellenangabe fuer den Report. */
   source:
-    "Delegierte VO (EU) 2021/2139 Anhang I 7.7; Top-15%-Näherung auf Basis dena-Gebäudereport 2024 und BBSR-Bestandsdaten (dokumentierte Schätzwerte)",
-  version: "2024-06",
+    "Delegierte VO (EU) 2021/2139 Anhang I 7.7; Top-15%/Top-30%-Schwellen je CRREM-Typ (Deepki 2024, Cushman & Wakefield – Predium-harmonisiert)",
+  version: "2026-07",
 };
 
 /**
- * "Top 15%"-Naeherung: Primaerenergie-Schwellen (kWh PE nicht erneuerbar/m2a)
- * je CRREM-Nutzungsart fuer den deutschen Bestand (vor 2021).
- * Quelle: Naeherung aus dena-Gebaeudereport 2024 (Wohnen) und
- * BBSR/co2online-Benchmarks (Nichtwohnen); bewusst konservativ gerundet.
+ * Top-15%-Schwellen (kWh PE/m2a) je CRREM-Nutzungsart, DEUTSCHLAND -
+ * harmonisiert auf die Predium-Werte (Spez. 2.12; Quellen: Deepki 2024,
+ * Cushman & Wakefield): MFH 95 · Buero 119 · Einzelhandel 156 · Hotel 193 ·
+ * Gesundheit 159 · Lager 92. Label: Top 15 % = "Wesentlicher Beitrag".
+ * LEI hat keinen publizierten DE-Wert -> Einzelhandel-Naeherung
+ * (dokumentierte Abweichung).
  */
 export const TAXONOMY_PED_TOP15: Record<CrremType, number> = {
-  RSF: 70,
-  RMF: 65,
-  OFF: 90,
-  RHS: 130,
-  RSM: 140,
-  RWB: 110,
-  HOT: 130,
-  DWC: 120,
-  DWW: 90,
-  HEC: 160,
-  LEI: 120,
+  RSF: 95,
+  RMF: 95,
+  OFF: 119,
+  RHS: 156,
+  RSM: 156,
+  RWB: 156,
+  HOT: 193,
+  DWC: 92,
+  DWW: 92,
+  HEC: 159,
+  LEI: 156,
 };
+
+/**
+ * Top-30%-Schwellen (kWh PE/m2a): "DNSH erfuellt"-Label (Spez. 2.12).
+ * Gleiche Quellen: MFH 120 · Buero 148 · Einzelhandel 201 · Hotel 255 ·
+ * Gesundheit 191 · Lager 126.
+ */
+export const TAXONOMY_PED_TOP30: Record<CrremType, number> = {
+  RSF: 120,
+  RMF: 120,
+  OFF: 148,
+  RHS: 201,
+  RSM: 201,
+  RWB: 201,
+  HOT: 255,
+  DWC: 126,
+  DWW: 126,
+  HEC: 191,
+  LEI: 201,
+};
+
+/** Renovierung: mind. -30 % Primaerenergiebedarf (Spez. 2.12). */
+export const TAXONOMY_RENOVATION_PED_REDUCTION = 0.3;
 
 /**
  * NZEB-Schwellen fuer Neubauten ab 2021 (Anhang I 7.1: mind. 10 % unter NZEB).
