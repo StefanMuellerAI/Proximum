@@ -1,6 +1,7 @@
 import {
   RENOVATION_MEASURES,
   CARRIERS,
+  type CarrierKey,
   type RenovationMeasure,
   type EnvelopeComponent,
 } from "@/lib/data/reference";
@@ -28,6 +29,7 @@ export function getMeasures(ids: string[]): RenovationMeasure[] {
 /**
  * Wendet die gewaehlten Massnahmen auf den Energiezustand an.
  * Reihenfolge: 1) Huelle/Effizienz (Reduktionen), 2) Waermeerzeuger-Wechsel,
+ * 2b) Tarifumstellungen (Traegerwechsel 1:1, z. B. Gruenstrom/Biomethan),
  * 3) PV (reduziert Netzstrom zuletzt).
  *
  * wwrPercent (optional): steuert die WWR-abhaengige Wirkung der Huellen-Massnahmen.
@@ -96,6 +98,31 @@ export function applyMeasures(
         heatKwhM2a: newCarrier.isElectric ? 0 : newHeatEnergy,
         electricityKwhM2a: newCarrier.isElectric ? newHeatEnergy : 0,
       });
+    }
+  }
+
+  // 2b) Tarifumstellungen: Traeger 1:1 ersetzen, Endenergie bleibt gleich
+  //     (z. B. Netzstrom -> Gruenstrom, Erdgas -> Biomethan). Nach dem
+  //     Erzeuger-Wechsel angewandt: ist z. B. Gas bereits durch eine
+  //     Waermepumpe ersetzt, laeuft die Gas-Umstellung ins Leere.
+  for (const m of measures) {
+    if (!m.switchCarriers) continue;
+    for (const [from, to] of Object.entries(m.switchCarriers) as [
+      CarrierKey,
+      CarrierKey,
+    ][]) {
+      const src = shares.find((s) => s.carrier === from);
+      if (!src) continue;
+      const dst = shares.find((s) => s.carrier === to);
+      if (dst) {
+        dst.heatKwhM2a += src.heatKwhM2a;
+        dst.electricityKwhM2a += src.electricityKwhM2a;
+        src.heatKwhM2a = 0;
+        src.electricityKwhM2a = 0;
+      } else {
+        src.carrier = to;
+        src.label = CARRIERS[to].label;
+      }
     }
   }
 

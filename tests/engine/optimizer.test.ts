@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import { getDemo } from "@/lib/demo";
 import { optimize } from "@/lib/engine/optimizer";
 import { analyzeBase } from "@/lib/engine";
+import { RENOVATION_MEASURES } from "@/lib/data/reference";
 
 const { normalized: demo } = getDemo();
 
 describe("optimize", () => {
-  it("prüft alle 511 nicht-leeren Kombinationen (9 Maßnahmen)", () => {
+  it("prüft alle 2^n−1 nicht-leeren Kombinationen des Katalogs", () => {
     const r = optimize(demo, { goal: "budget", budgetEur: null });
-    expect(r.evaluatedCount).toBe(511);
+    expect(r.evaluatedCount).toBe(2 ** RENOVATION_MEASURES.length - 1);
     expect(r.ranking.length).toBeLessThanOrEqual(10);
   });
 

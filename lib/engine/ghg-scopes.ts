@@ -23,6 +23,7 @@ export type ScopePerspective = "vermieter" | "mieter" | "whole_building";
 /** Traeger mit Verbrennung im Gebaeude -> Scope 1. */
 const SCOPE1_CARRIERS = new Set([
   "erdgas",
+  "biomethan",
   "fluessiggas",
   "heizoel",
   "steinkohle",

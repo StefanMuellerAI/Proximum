@@ -22,6 +22,7 @@ import type { CarrierKey } from "@/lib/data/reference";
  */
 export const CRREM_EF_2020: Partial<Record<CarrierKey, number>> = {
   erdgas: 0.183,
+  biomethan: 0.06, // biogen ~0 + Vorkette (Naeherung, konsistent zu CARRIERS)
   heizoel: 0.247,
   fluessiggas: 0.214,
   steinkohle: 0.345,
@@ -57,6 +58,7 @@ export const CRREM_HEAT_NETWORK_CARRIERS: CarrierKey[] = [
  */
 export const GEG_ANLAGE9_EF: Partial<Record<CarrierKey, number>> = {
   erdgas: 0.24,
+  biomethan: 0.14, // GEG Anlage 9: Biogas/Biomethan
   heizoel: 0.31,
   fluessiggas: 0.27,
   steinkohle: 0.4,

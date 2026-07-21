@@ -68,7 +68,7 @@ export function OptimizerPanel({
     return Number.isFinite(n) && n > 0 ? n : null;
   }, [budgetInput]);
 
-  // Deferred: die 511 Simulationen laufen nachrangig, damit Tipp-Eingaben
+  // Deferred: die 2^n−1 Simulationen laufen nachrangig, damit Tipp-Eingaben
   // (z. B. im Review-Panel oder Budget-Feld) nicht pro Tastendruck blockieren.
   const deferredBuilding = React.useDeferredValue(building);
   const deferredTargetYear = React.useDeferredValue(targetYear);

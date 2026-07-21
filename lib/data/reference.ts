@@ -112,6 +112,7 @@ export function carrierCo2KgPerKwh(key: CarrierKey): number {
 
 export type CarrierKey =
   | "erdgas"
+  | "biomethan"
   | "fluessiggas"
   | "heizoel"
   | "steinkohle"
@@ -152,6 +153,17 @@ export const CARRIERS: Record<CarrierKey, Carrier> = {
     isElectric: false,
     behgRelevant: true,
     priceEurPerKwh: 0.11,
+  },
+  biomethan: {
+    key: "biomethan",
+    label: "Biomethan (grünes Gas)",
+    // Biogene Verbrennung ~0; Restwert = Vorkette (UBA-Naeherung, analog Holz).
+    co2KgPerKwh: 0.06,
+    isElectric: false,
+    // Nachhaltiges Biomethan ist unter BEHG/EBeV nicht CO2-bepreist (EF 0).
+    behgRelevant: false,
+    // Erdgaspreis + Gruengas-Aufschlag (Herkunftsnachweis), DE-Naeherung.
+    priceEurPerKwh: 0.14,
   },
   fluessiggas: {
     key: "fluessiggas",
@@ -296,6 +308,8 @@ export function matchCarrier(text: string | null | undefined): CarrierKey {
     return "abwaerme";
   if (t.includes("strom")) return "strom_netz";
 
+  if (t.includes("biomethan") || t.includes("biogas") || t.includes("grünes gas") || t.includes("gruenes gas") || t.includes("grüngas") || t.includes("gruengas"))
+    return "biomethan";
   if (t.includes("flüssiggas") || t.includes("fluessiggas") || t.includes("lpg") || t.includes("propan") || t.includes("butan"))
     return "fluessiggas";
   if (t.includes("erdgas") || t.includes("cng") || (t.includes("gas") && !t.includes("flüssig") && !t.includes("fluessig")))
@@ -318,6 +332,8 @@ export function matchCarrier(text: string | null | undefined): CarrierKey {
 
 export const PRIMARY_ENERGY_FACTORS: Record<CarrierKey, number> = {
   erdgas: 1.1,
+  // GEG Anlage 4 Nr. 8 (Biomethan im Bestandskessel): 0,7 (n. erneuerbar)
+  biomethan: 0.7,
   fluessiggas: 1.1,
   heizoel: 1.1,
   steinkohle: 1.1,
@@ -646,7 +662,7 @@ export function mapToCrremType(
 export interface RenovationMeasure {
   id: string;
   label: string;
-  category: "Gebäudehülle" | "Anlagentechnik" | "Erneuerbare Energien";
+  category: "Gebäudehülle" | "Anlagentechnik" | "Erneuerbare Energien" | "Energiebezug";
   description: string;
   /** Investitionskosten in EUR je m2 Bezugsflaeche (Richtwert brutto). */
   costPerM2: number;
@@ -664,6 +680,12 @@ export interface RenovationMeasure {
   electricityReductionPct?: number;
   /** Wechsel des Waerme-Energietraegers (z. B. Gas -> Waermepumpe). */
   switchHeatCarrierTo?: CarrierKey;
+  /**
+   * Tarifumstellung: ersetzt Traeger 1:1 ohne Aenderung der Endenergie
+   * (z. B. Netzstrom -> Gruenstrom, Erdgas -> Biomethan). Wirkt nur, wenn
+   * der Quell-Traeger im Gebaeude vorhanden ist.
+   */
+  switchCarriers?: Partial<Record<CarrierKey, CarrierKey>>;
   /**
    * Faktor auf die Waerme-Endenergie beim Traegerwechsel.
    * Beispiel Gas->WP: gleiche Nutzwaerme, aber Strom = Waerme / JAZ ~3,5 -> ~0.28.
@@ -765,5 +787,29 @@ export const RENOVATION_MEASURES: RenovationMeasure[] = [
     costPerM2: 45,
     subsidyRate: 0.0,
     pvYieldKwhPerM2: 20,
+  },
+  // Tarifumstellungen (Energiebezug): keine Investition fuer den Eigentuemer,
+  // da die (leicht hoeheren) Energiepreise von den Mietern getragen werden.
+  // Wirkung: CO2-Faktor des Traegers sinkt -> Stranding-Zeitpunkt verschiebt
+  // sich deutlich, ohne bauliche Massnahme.
+  {
+    id: "gruenstrom",
+    label: "Umstellung auf Grünstrom-Tarif",
+    category: "Energiebezug",
+    description:
+      "Netzstrom wird auf zertifizierten Grünstrom umgestellt. Keine Investition – Mehrkosten des Tarifs tragen die Mieter über die Stromkosten.",
+    costPerM2: 0,
+    subsidyRate: 0.0,
+    switchCarriers: { strom_netz: "strom_gruen" },
+  },
+  {
+    id: "gruengas",
+    label: "Umstellung auf grünes Gas (Biomethan)",
+    category: "Energiebezug",
+    description:
+      "Erdgasbezug wird auf Biomethan mit Herkunftsnachweis umgestellt. Keine Investition – Mehrkosten des Tarifs tragen die Mieter über die Gaskosten; zusätzlich entfällt die CO₂-Abgabe (BEHG).",
+    costPerM2: 0,
+    subsidyRate: 0.0,
+    switchCarriers: { erdgas: "biomethan" },
   },
 ];

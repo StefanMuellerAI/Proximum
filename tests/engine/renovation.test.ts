@@ -44,6 +44,38 @@ describe("applyMeasures", () => {
     );
   });
 
+  it("Grünstrom: Netzstrom wird 1:1 zu Grünstrom, Endenergie unverändert", () => {
+    const base = baseEnergyState(demo);
+    const out = applyMeasures(base, ["gruenstrom"]);
+    expect(out.heatKwhM2a).toBeCloseTo(base.heatKwhM2a, 6);
+    expect(out.electricityKwhM2a).toBeCloseTo(base.electricityKwhM2a, 6);
+    expect(out.perCarrier.some((s) => s.carrier === "strom_netz")).toBe(false);
+    const gruen = out.perCarrier.find((s) => s.carrier === "strom_gruen");
+    expect(gruen?.electricityKwhM2a).toBeCloseTo(base.electricityKwhM2a, 6);
+  });
+
+  it("Grünes Gas: Erdgas wird 1:1 zu Biomethan, Wärme unverändert", () => {
+    const base = baseEnergyState(demo);
+    const out = applyMeasures(base, ["gruengas"]);
+    expect(out.heatKwhM2a).toBeCloseTo(base.heatKwhM2a, 6);
+    expect(out.perCarrier.some((s) => s.carrier === "erdgas")).toBe(false);
+    const bio = out.perCarrier.find((s) => s.carrier === "biomethan");
+    expect(bio?.heatKwhM2a).toBeCloseTo(base.heatKwhM2a, 6);
+  });
+
+  it("Grünes Gas nach Wärmepumpe: kein Erdgas mehr vorhanden, Umstellung läuft ins Leere", () => {
+    const base = baseEnergyState(demo);
+    const out = applyMeasures(base, ["waermepumpe", "gruengas"]);
+    expect(out.perCarrier.some((s) => s.carrier === "biomethan")).toBe(false);
+    expect(out.heatKwhM2a).toBeCloseTo(0, 6);
+  });
+
+  it("Tarifumstellungen kosten den Eigentümer nichts", () => {
+    const sum = summarizeInvestment(["gruenstrom", "gruengas"], 1000);
+    expect(sum.totalInvestEur).toBeCloseTo(0, 6);
+    expect(sum.netInvestEur).toBeCloseTo(0, 6);
+  });
+
   it("Reduktionen wirken kumulativ multiplikativ", () => {
     const base = baseEnergyState(demo);
     const single = applyMeasures(base, ["abgleich"]);

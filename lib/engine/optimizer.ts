@@ -1,7 +1,7 @@
 /**
  * Sanierungs-Optimizer: vollstaendige Kombinationssuche ueber den
- * Massnahmen-Katalog (2^9 = 512 Pakete) mit waehlbarem Ziel und Zielfunktion,
- * plus Greedy-Roadmap (zeitliche Reihenfolge der Massnahmen).
+ * Massnahmen-Katalog (2^n Pakete, n = Katalogumfang) mit waehlbarem Ziel und
+ * Zielfunktion, plus Greedy-Roadmap (zeitliche Reihenfolge der Massnahmen).
  *
  * Hinweis: nutzt die vereinfachte deterministische Engine – Ergebnisse sind
  * Orientierung, keine Fachplanung.
@@ -87,7 +87,7 @@ function defaultObjective(goal: OptimizerGoal): OptimizerObjective {
   return goal === "budget" ? "co2PerEuro" : "minInvest";
 }
 
-/** Alle 2^n Teilmengen der Massnahmen-IDs (n = 9 -> 512). */
+/** Alle 2^n Teilmengen der Massnahmen-IDs. */
 function allSubsets(ids: string[]): string[][] {
   const out: string[][] = [];
   const n = ids.length;
@@ -102,7 +102,7 @@ function allSubsets(ids: string[]): string[][] {
 /**
  * Leichtgewichtige Szenario-Bewertung gegen eine EINMAL berechnete Basis
  * (statt analyzeScenario, das die Basisanalyse je Aufruf neu rechnet –
- * bei 511 Paketen waeren das 511 unnoetige Basisanalysen).
+ * bei 2^n − 1 Paketen waeren das ebenso viele unnoetige Basisanalysen).
  */
 function evaluateScenario(
   building: NormalizedBuilding,
@@ -282,7 +282,7 @@ export function optimize(
   const baseStrandingYear = base.crrem.strandingYear;
 
   // Thermisches Modell EINMAL kalibrieren (GAP-2): bauteilscharfe
-  // Reduktionen fuer alle 511 Pakete, sonst Heuristik-Fallback.
+  // Reduktionen fuer alle Pakete, sonst Heuristik-Fallback.
   const envelopeReductions =
     analyzeThermal(building)?.envelopeReductions ?? null;
 

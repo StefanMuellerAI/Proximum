@@ -71,8 +71,10 @@ export function co2IntensityForYear(
     } else if (opts.database === "geg") {
       sum += energy * (GEG_ANLAGE9_EF[share.carrier] ?? 0);
     } else {
-      // Legacy-Hybrid: statischer Faktor, Strom ueber CRREM-Netzpfad
-      if (carrier.isElectric) {
+      // Legacy-Hybrid: statischer Faktor, Strom ueber CRREM-Netzpfad.
+      // Ausnahme Gruenstrom: folgt NICHT dem Netzmix-Pfad, sondern dem
+      // statischen Faktor (~0), sonst haette die Tarifumstellung keine Wirkung.
+      if (carrier.isElectric && share.carrier !== "strom_gruen") {
         sum += energy * gridEfForYear(year);
       } else {
         sum += energy * carrierCo2KgPerKwh(share.carrier);

@@ -38,6 +38,10 @@ export const MEASURE_LIFETIME_YEARS: Record<string, number> = {
   led: 15,
   waermepumpe: 20,
   pv: 25,
+  // Tarifumstellungen: Wirkung gilt fuer die Vertragslaufzeit; da ohne
+  // Investition, beeinflussen sie die (invest-gewichtete) Paket-Lebensdauer nicht.
+  gruenstrom: 10,
+  gruengas: 10,
 };
 
 /** Gewichtete (invest-anteilige) Lebensdauer eines Massnahmenpakets. */

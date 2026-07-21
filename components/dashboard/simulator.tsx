@@ -18,6 +18,7 @@ const categories: RenovationMeasure["category"][] = [
   "Gebäudehülle",
   "Anlagentechnik",
   "Erneuerbare Energien",
+  "Energiebezug",
 ];
 
 export function Simulator({

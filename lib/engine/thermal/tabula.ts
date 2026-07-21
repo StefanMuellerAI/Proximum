@@ -145,6 +145,7 @@ export function ageClassDefaults(baujahr: number): AgeClassDefaults {
  */
 export const EXPENDITURE_FACTORS: Record<string, number> = {
   erdgas: 1.08, // Brennwert-/NT-Mix Bestand
+  biomethan: 1.08, // wie Erdgas (gleiche Kesseltechnik)
   fluessiggas: 1.1,
   heizoel: 1.15,
   steinkohle: 1.3,
